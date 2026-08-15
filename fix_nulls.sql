@@ -1,0 +1,10 @@
+UPDATE docs_accounts SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_invoices SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_bills SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_payments SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_journals SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_credit_notes SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_inventory_transactions SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_inventory_adjustments SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_products SET updated_at = NOW() WHERE updated_at IS NULL;
+UPDATE docs_contacts SET updated_at = NOW() WHERE updated_at IS NULL;

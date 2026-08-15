@@ -1,0 +1,139 @@
+CREATE OR REPLACE FUNCTION public.process_credit_note(p_cn jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_cn_id TEXT;
+    v_company_id TEXT;
+    v_status TEXT;
+    v_date DATE;
+    v_customer_id TEXT;
+    v_invoice_id TEXT;
+    v_number TEXT;
+    v_item JSONB;
+    v_lines JSONB;
+    v_new_lines JSONB := '[]'::jsonb;
+    v_existing_number TEXT;
+    
+    v_calc_qty NUMERIC;
+    v_calc_price NUMERIC;
+    v_calc_gross NUMERIC;
+    v_calc_disc_rate NUMERIC;
+    v_calc_disc_mode TEXT;
+    v_calc_disc_amt NUMERIC;
+    v_calc_tax_amt NUMERIC;
+    v_calc_line_total NUMERIC;
+    
+    v_inv_subtotal NUMERIC := 0;
+    v_inv_discount NUMERIC := 0;
+    v_inv_tax NUMERIC := 0;
+    v_inv_total NUMERIC := 0;
+BEGIN
+    v_cn_id := p_cn->>'id';
+    v_company_id := COALESCE(p_cn->>'companyId', p_cn->>'company_id');
+    v_status := COALESCE(p_cn->>'status', 'DRAFT');
+    v_date := (p_cn->>'date')::DATE;
+    v_customer_id := p_cn->>'customerId';
+    v_invoice_id := p_cn->>'invoiceId';
+    v_number := p_cn->>'number';
+    v_lines := p_cn->'items';
+
+    SELECT credit_note_number INTO v_existing_number FROM docs_credit_notes WHERE id = v_cn_id;
+    IF v_existing_number IS NOT NULL AND v_existing_number NOT LIKE 'DRAFT-%' AND v_existing_number != 'NEW' THEN
+        v_number := v_existing_number;
+        p_cn := jsonb_set(p_cn, '{number}', to_jsonb(v_existing_number));
+    END IF;
+
+    IF v_lines IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(v_lines) LOOP
+            v_calc_qty := COALESCE((v_item->>'quantity')::NUMERIC, 0);
+            v_calc_price := COALESCE((v_item->>'unitPrice')::NUMERIC, 0);
+            v_calc_gross := v_calc_qty * v_calc_price;
+            v_calc_disc_rate := COALESCE((v_item->>'discountRate')::NUMERIC, 0);
+            v_calc_disc_mode := COALESCE(v_item->>'discountMode', 'PERCENT');
+            
+            IF v_calc_disc_mode = 'FIXED' THEN
+                v_calc_disc_amt := v_calc_disc_rate;
+            ELSE
+                v_calc_disc_amt := ROUND((v_calc_gross * (v_calc_disc_rate / 100.0)), 2);
+            END IF;
+            
+            v_calc_tax_amt := COALESCE((v_item->>'taxValue')::NUMERIC, 0);
+            v_calc_line_total := ROUND((v_calc_gross - v_calc_disc_amt + v_calc_tax_amt), 2);
+            
+            v_inv_subtotal := v_inv_subtotal + v_calc_gross;
+            v_inv_discount := v_inv_discount + v_calc_disc_amt;
+            v_inv_tax := v_inv_tax + v_calc_tax_amt;
+            v_inv_total := v_inv_total + v_calc_line_total;
+
+            v_item := jsonb_set(v_item, '{discountAmount}', to_jsonb(v_calc_disc_amt));
+            v_item := jsonb_set(v_item, '{taxAmount}', to_jsonb(v_calc_tax_amt));
+            v_item := jsonb_set(v_item, '{total}', to_jsonb(v_calc_line_total));
+            v_item := jsonb_set(v_item, '{lineValue}', to_jsonb(v_calc_line_total));
+            
+            v_new_lines := v_new_lines || v_item;
+        END LOOP;
+    END IF;
+
+    p_cn := jsonb_set(p_cn, '{items}', v_new_lines);
+    p_cn := jsonb_set(p_cn, '{subtotal}', to_jsonb(v_inv_subtotal));
+    p_cn := jsonb_set(p_cn, '{discountTotal}', to_jsonb(v_inv_discount));
+    p_cn := jsonb_set(p_cn, '{taxTotal}', to_jsonb(v_inv_tax));
+    p_cn := jsonb_set(p_cn, '{total}', to_jsonb(v_inv_total));
+    p_cn := jsonb_set(p_cn, '{status}', '"DRAFT"');
+    RAISE NOTICE 'v_inv_total = %, p_cn = %', v_inv_total, p_cn;
+
+    INSERT INTO docs_credit_notes (
+        id, company_id, cn_number, credit_note_number, date, credit_note_date, customer_id, origin_invoice_id, status, data, subtotal, discount_total, tax_total, total, updated_at
+    )
+    VALUES (
+        v_cn_id, v_company_id, v_number, v_number, v_date, v_date, v_customer_id, v_invoice_id, 'DRAFT', p_cn, v_inv_subtotal, v_inv_discount, v_inv_tax, v_inv_total, NOW()
+    )
+    ON CONFLICT (id) DO UPDATE SET 
+        data = EXCLUDED.data, 
+        total = EXCLUDED.total, 
+        subtotal = EXCLUDED.subtotal,
+        discount_total = EXCLUDED.discount_total,
+        tax_total = EXCLUDED.tax_total,
+        updated_at = NOW();
+    DELETE FROM docs_credit_note_lines WHERE credit_note_id = v_cn_id;
+
+    IF v_new_lines IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(v_new_lines) LOOP
+            INSERT INTO docs_credit_note_lines (
+                id, credit_note_id, company_id, product_id, quantity, unit_price, 
+                discount_mode, discount_rate,  line_value, total, type, description, uom, display_description
+            )
+            VALUES (
+                COALESCE(v_item->>'id', gen_random_uuid()::TEXT),
+                v_cn_id,
+                v_company_id,
+                v_item->>'productId',
+                (v_item->>'quantity')::NUMERIC,
+                (v_item->>'unitPrice')::NUMERIC,
+                v_item->>'discountMode',
+                (v_item->>'discountRate')::NUMERIC,
+                
+                (v_item->>'lineValue')::NUMERIC,
+                (v_item->>'total')::NUMERIC,
+                COALESCE(v_item->>'type', 'PRODUCT'),
+                v_item->>'description',
+                v_item->>'uom',
+                v_item->>'displayDescription'
+            );
+        END LOOP;
+    END IF;
+
+    
+
+    IF v_status = 'POSTED' THEN
+        UPDATE docs_credit_notes SET status = 'POSTED', data = jsonb_set(data, '{status}', to_jsonb('POSTED'::text)) WHERE id = v_cn_id;
+        IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'post_credit_note') THEN
+            PERFORM post_credit_note(v_cn_id, v_company_id);
+        END IF;
+    END IF;
+
+    RETURN jsonb_build_object('success', true, 'credit_note_id', v_cn_id);
+END;
+$function$

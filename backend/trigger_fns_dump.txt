@@ -1,0 +1,1139 @@
+﻿
+
+============================================================
+FUNCTION: sync_document_metadata
+============================================================
+CREATE OR REPLACE FUNCTION public.sync_document_metadata()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+  DECLARE
+    v_val TEXT;
+    BEGIN
+      IF NEW.data IS NOT NULL THEN
+          -- Sync Company ID
+              IF (NEW.data ? 'companyId') THEN
+                    v_val := COALESCE(NEW.data->>'companyId', NEW.data->'companyIds'->>0);
+                          IF v_val IS NOT NULL THEN NEW.company_id := v_val; END IF;
+                              ELSIF (NEW.data ? 'companyIds') THEN
+                                    v_val := NEW.data->'companyIds'->>0;
+                                          IF v_val IS NOT NULL THEN NEW.company_id := v_val; END IF;
+                                              END IF;
+
+                                                  -- Sync Status
+                                                      BEGIN
+                                                             IF TG_OP = 'UPDATE' THEN
+                                                                       IF NEW.status IS DISTINCT FROM OLD.status THEN
+                                                                                    NEW.data := jsonb_set(NEW.data, 
+'{status}', to_jsonb(NEW.status));
+                                                                                              ELSIF 
+NEW.data->>'status' IS DISTINCT FROM OLD.data->>'status' THEN
+                                                                                                           NEW.status 
+:= NEW.data->>'status';
+                                                                                                                     
+ELSE
+                                                                                                                       
+           IF (NEW.data ? 'status') THEN NEW.status := NEW.data->>'status'; END IF;
+                                                                                                                       
+                     END IF;
+                                                                                                                       
+                            ELSE
+                                                                                                                       
+                                      IF NEW.status IS NOT NULL THEN
+                                                                                                                       
+                                                   NEW.data := jsonb_set(NEW.data, '{status}', to_jsonb(NEW.status));
+                                                                                                                       
+                                                             ELSIF (NEW.data ? 'status') THEN
+                                                                                                                       
+                                                                          NEW.status := NEW.data->>'status';
+                                                                                                                       
+                                                                                    END IF;
+                                                                                                                       
+                                                                                           END IF;
+                                                                                                                       
+                                                                                               EXCEPTION WHEN 
+undefined_column THEN END;
+
+                                                                                                                       
+                                                                                                   -- ≡ƒÆí αª«αºéαª▓ 
+αª½αª┐αªòαºìαª╕: Sync Date (The Bulletproof Logic)
+                                                                                                                       
+                                                                                                       BEGIN
+                                                                                                                       
+                                                                                                              NEW.date 
+:= COALESCE(
+                                                                                                                       
+                                                                                                                       
+  NULLIF(NEW.data->>'date', '')::DATE,
+                                                                                                                       
+                                                                                                                       
+             NULLIF(NEW.data->>'createdAt', '')::DATE,
+                                                                                                                       
+                                                                                                                       
+                        NEW.date,
+                                                                                                                       
+                                                                                                                       
+                                   CURRENT_DATE
+                                                                                                                       
+                                                                                                                       
+                                          );
+                                                                                                                       
+                                                                                                                       
+                                                 
+                                                                                                                       
+                                                                                                                       
+                                                        -- Specific Dates based on table
+                                                                                                                       
+                                                                                                                       
+                                                               IF TG_TABLE_NAME = 'docs_payments' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                        NEW.payment_date := 
+COALESCE(NULLIF(NEW.data->>'paymentDate', '')::DATE, NEW.date);
+                                                                                                                       
+                                                                                                                       
+                                                                               ELSIF TG_TABLE_NAME = 'docs_invoices' 
+THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                        NEW.invoice_date := 
+COALESCE(NULLIF(NEW.data->>'invoiceDate', '')::DATE, NEW.date);
+                                                                                                                       
+                                                                                                                       
+                                                                                               ELSIF TG_TABLE_NAME = 
+'docs_bills' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                        NEW.bill_date 
+:= COALESCE(NULLIF(NEW.data->>'billDate', '')::DATE, NEW.date);
+                                                                                                                       
+                                                                                                                       
+                                                                                                               ELSIF 
+TG_TABLE_NAME = 'docs_journals' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+ NEW.journal_date := COALESCE(NULLIF(NEW.data->>'journalDate', '')::DATE, NEW.date);
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+        END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+            EXCEPTION WHEN undefined_column THEN END;
+
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                -- Sync Totals/Amounts
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                    BEGIN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                           IF (NEW.data ? 'total') THEN NEW.total := NULLIF(NEW.data->>'total', '')::NUMERIC; 
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                  ELSIF (NEW.data ? 'amount') THEN NEW.amount := NULLIF(NEW.data->>'amount', 
+'')::NUMERIC;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                         END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                             EXCEPTION WHEN undefined_column THEN END;
+
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                 -- Sync Partner/Contact ID
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                     BEGIN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                            IF TG_TABLE_NAME = 'docs_invoices' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                     v_val := 
+COALESCE(NULLIF(NEW.data->>'customerId',''), NULLIF(NEW.data->>'contactId',''));
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                              IF v_val IS NOT NULL THEN 
+NEW.customer_id := v_val; END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                     ELSIF TG_TABLE_NAME = 
+'docs_bills' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                              v_val := 
+COALESCE(NULLIF(NEW.data->>'vendorId',''), NULLIF(NEW.data->>'contactId',''));
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                       IF v_val IS NOT 
+NULL THEN NEW.vendor_id := v_val; END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                              ELSIF 
+TG_TABLE_NAME = 'docs_payments' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+v_val := COALESCE(NULLIF(NEW.data->>'contactId',''), NULLIF(NEW.data->>'customerId',''), 
+NULLIF(NEW.data->>'vendorId',''));
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+         IF v_val IS NOT NULL THEN NEW.contact_id := v_val; END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                ELSIF TG_TABLE_NAME = 'docs_credit_notes' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                         v_val := COALESCE(NULLIF(NEW.data->>'customerId',''), NULLIF(NEW.data->>'contactId',''));
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                  IF v_val IS NOT NULL THEN NEW.customer_id := v_val; END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                         ELSE
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                  IF (NEW.data ? 'contactId') THEN NEW.contact_id := 
+NULLIF(NEW.data->>'contactId', '');
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                           ELSIF (NEW.data ? 'customerId') THEN NEW.contact_id := 
+NULLIF(NEW.data->>'customerId', '');
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                    ELSIF (NEW.data ? 'vendorId') THEN NEW.contact_id 
+:= NULLIF(NEW.data->>'vendorId', '');
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                             END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                    END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                        EXCEPTION WHEN 
+undefined_column THEN END;
+
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                            -- Sync Journal ID
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                BEGIN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                       IF (NEW.data ? 
+'journalEntryId') THEN NEW.journal_id := NULLIF(NEW.data->>'journalEntryId', ''); END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                           EXCEPTION 
+WHEN undefined_column THEN END;
+
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                               -- Sync 
+Product specific flat columns
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                   
+BEGIN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+   IF TG_TABLE_NAME = 'docs_products' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+            IF (NEW.data ? 'name') THEN NEW.name := NULLIF(NEW.data->>'name', ''); END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                     IF (NEW.data ? 'sku') THEN NEW.sku := NULLIF(NEW.data->>'sku', ''); END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                              IF (NEW.data ? 'price') THEN NEW.price := NULLIF(NEW.data->>'price', '')::NUMERIC; END 
+IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                       IF (NEW.data ? 'costPrice') THEN NEW.cost_price := 
+NULLIF(NEW.data->>'costPrice', '')::NUMERIC; END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                              ELSIF TG_TABLE_NAME = 'docs_contacts' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                       IF (NEW.data ? 'name') THEN NEW.name := 
+NULLIF(NEW.data->>'name', ''); END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                IF (NEW.data ? 'type') THEN NEW.type := 
+NULLIF(NEW.data->>'type', ''); END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                       ELSIF TG_TABLE_NAME = 'docs_payments' THEN
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                IF (NEW.data ? 'type') THEN NEW.type 
+:= NULLIF(NEW.data->>'type', ''); END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                       END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                           EXCEPTION WHEN 
+undefined_column THEN END;
+
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                             END IF;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                               RETURN NEW;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                               END;
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                                                       
+                                                                                               $function$
+
+
+============================================================
+FUNCTION: calc_doc_totals
+============================================================
+CREATE OR REPLACE FUNCTION public.calc_doc_totals()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    v_item JSONB;
+    v_lines JSONB;
+    v_new_lines JSONB := '[]'::jsonb;
+    
+    v_type TEXT;
+    
+    v_calc_qty NUMERIC;
+    v_calc_price NUMERIC;
+    v_calc_gross NUMERIC;
+    v_calc_disc_rate NUMERIC;
+    v_calc_disc_mode TEXT;
+    v_calc_disc_amt NUMERIC;
+    v_calc_tax_rate NUMERIC;
+    v_calc_line_value NUMERIC;
+    v_manual_value NUMERIC;
+    
+    v_gross_subtotal NUMERIC := 0;
+    v_line_discount_total NUMERIC := 0;
+    v_global_discount_total NUMERIC := 0;
+    v_tax_total NUMERIC := 0;
+    v_running_subtotal NUMERIC := 0;
+    
+    v_has_subtotal_item BOOLEAN := false;
+    v_last_subtotal_value NUMERIC := 0;
+    
+    v_net_subtotal NUMERIC := 0;
+    v_total NUMERIC := 0;
+BEGIN
+    IF NEW.data IS NOT NULL AND NEW.data ? 'items' THEN
+        v_lines := NEW.data->'items';
+        IF jsonb_typeof(v_lines) = 'array' THEN
+            FOR v_item IN SELECT * FROM jsonb_array_elements(v_lines) LOOP
+                v_type := COALESCE(v_item->>'type', 'PRODUCT');
+                
+                IF v_type IN ('PRODUCT', 'SERVICE', 'CHARGE') THEN
+                    v_calc_qty := COALESCE((v_item->>'quantity')::NUMERIC, 0);
+                    v_calc_price := COALESCE((v_item->>'unitPrice')::NUMERIC, 0);
+                    v_calc_gross := v_calc_qty * v_calc_price;
+                    
+                    v_calc_disc_mode := COALESCE(v_item->>'discountMode', 'PERCENT');
+                    v_calc_disc_rate := COALESCE((v_item->>'discountRate')::NUMERIC, 0);
+                    
+                    IF v_calc_disc_mode = 'FIXED' THEN
+                        v_calc_disc_amt := v_calc_disc_rate;
+                    ELSE
+                        v_calc_disc_amt := ROUND((v_calc_gross * (v_calc_disc_rate / 100.0)), 2);
+                    END IF;
+                    
+                    -- Include inline tax if provided (some views might use it)
+                    v_calc_tax_rate := COALESCE((v_item->>'taxValue')::NUMERIC, 0);
+                    
+                    v_calc_line_value := ROUND(v_calc_gross - v_calc_disc_amt + v_calc_tax_rate, 2);
+                    
+                    v_gross_subtotal := ROUND(v_gross_subtotal + v_calc_gross, 2);
+                    v_line_discount_total := ROUND(v_line_discount_total + v_calc_disc_amt, 2);
+                    v_running_subtotal := ROUND(v_running_subtotal + v_calc_line_value, 2);
+                    v_tax_total := ROUND(v_tax_total + v_calc_tax_rate, 2);
+                    
+                    v_item := jsonb_set(v_item, '{discountAmount}', to_jsonb(v_calc_disc_amt));
+                    v_item := jsonb_set(v_item, '{taxAmount}', to_jsonb(v_calc_tax_rate));
+                    v_item := jsonb_set(v_item, '{lineValue}', to_jsonb(v_calc_line_value));
+                    v_item := jsonb_set(v_item, '{total}', to_jsonb(v_calc_line_value));
+
+                ELSIF v_type = 'DISCOUNT' THEN
+                    v_calc_disc_mode := COALESCE(v_item->>'discountMode', 'PERCENT');
+                    v_calc_disc_rate := COALESCE((v_item->>'discountRate')::NUMERIC, 0);
+                    
+                    IF v_calc_disc_mode = 'PERCENT' THEN
+                        v_calc_line_value := -ROUND((v_running_subtotal * (v_calc_disc_rate / 100.0)), 2);
+                    ELSE
+                        v_calc_line_value := -ROUND(v_calc_disc_rate, 2);
+                    END IF;
+                    
+                    v_global_discount_total := ROUND(v_global_discount_total + ABS(v_calc_line_value), 2);
+                    v_running_subtotal := ROUND(v_running_subtotal + v_calc_line_value, 2);
+                    
+                    v_item := jsonb_set(v_item, '{lineValue}', to_jsonb(v_calc_line_value));
+                    v_item := jsonb_set(v_item, '{total}', to_jsonb(v_calc_line_value));
+
+                ELSIF v_type = 'TAX' THEN
+                    v_manual_value := (v_item->>'manualValue')::NUMERIC;
+                    v_calc_tax_rate := COALESCE((v_item->>'taxRate')::NUMERIC, 0);
+                    
+                    IF v_manual_value IS NOT NULL THEN
+                        v_calc_line_value := ROUND(v_manual_value, 2);
+                    ELSE
+                        v_calc_line_value := ROUND((v_running_subtotal * (v_calc_tax_rate / 100.0)), 2);
+                    END IF;
+                    
+                    v_tax_total := ROUND(v_tax_total + v_calc_line_value, 2);
+                    v_running_subtotal := ROUND(v_running_subtotal + v_calc_line_value, 2);
+                    
+                    v_item := jsonb_set(v_item, '{lineValue}', to_jsonb(v_calc_line_value));
+                    v_item := jsonb_set(v_item, '{total}', to_jsonb(v_calc_line_value));
+
+                ELSIF v_type = 'SUBTOTAL' THEN
+                    v_manual_value := (v_item->>'manualValue')::NUMERIC;
+                    IF v_manual_value IS NOT NULL THEN
+                        v_calc_line_value := ROUND(v_manual_value, 2);
+                    ELSE
+                        v_calc_line_value := ROUND(v_running_subtotal, 2);
+                    END IF;
+                    
+                    v_running_subtotal := ROUND(v_calc_line_value, 2);
+                    v_last_subtotal_value := ROUND(v_calc_line_value, 2);
+                    v_has_subtotal_item := true;
+                    
+                    v_item := jsonb_set(v_item, '{lineValue}', to_jsonb(v_calc_line_value));
+                    v_item := jsonb_set(v_item, '{total}', to_jsonb(v_calc_line_value));
+                END IF;
+                
+                v_new_lines := v_new_lines || v_item;
+            END LOOP;
+
+            -- Calculate final totals matching frontend Logic
+            v_total := ROUND(v_running_subtotal, 2);
+            
+            IF v_has_subtotal_item THEN
+                v_net_subtotal := v_last_subtotal_value;
+            ELSE
+                v_net_subtotal := ROUND((v_gross_subtotal - v_line_discount_total), 2);
+            END IF;
+
+            -- Update JSON data
+            NEW.data := jsonb_set(NEW.data, '{items}', v_new_lines);
+            NEW.data := jsonb_set(NEW.data, '{subtotal}', to_jsonb(v_net_subtotal));
+            NEW.data := jsonb_set(NEW.data, '{discountTotal}', to_jsonb(v_line_discount_total + 
+v_global_discount_total));
+            NEW.data := jsonb_set(NEW.data, '{taxTotal}', to_jsonb(v_tax_total));
+            NEW.data := jsonb_set(NEW.data, '{total}', to_jsonb(v_total));
+
+            -- Update columns if they exist
+            IF TG_TABLE_NAME = 'docs_invoices' THEN
+                NEW.subtotal := v_net_subtotal;
+                NEW.discount_total := v_line_discount_total + v_global_discount_total;
+                NEW.tax_total := v_tax_total;
+                NEW.total := v_total;
+            ELSIF TG_TABLE_NAME = 'docs_bills' THEN
+                NEW.subtotal := v_net_subtotal;
+                NEW.discount_total := v_line_discount_total + v_global_discount_total;
+                NEW.tax_total := v_tax_total;
+                NEW.total := v_total;
+            ELSIF TG_TABLE_NAME = 'docs_credit_notes' THEN
+                NEW.subtotal := v_net_subtotal;
+                NEW.discount_total := v_line_discount_total + v_global_discount_total;
+                NEW.tax_total := v_tax_total;
+                NEW.total := v_total;
+            END IF;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$function$
+
+
+============================================================
+FUNCTION: sync_invoice_lines_from_doc_data
+============================================================
+CREATE OR REPLACE FUNCTION public.sync_invoice_lines_from_doc_data()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+    DECLARE
+        v_item JSONB;
+        v_items_array JSONB;
+        v_serial_json JSONB;
+        v_line_id TEXT;
+        v_raw_id TEXT;
+        v_idx INTEGER;
+    BEGIN
+        IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
+        IF NEW.data IS NULL OR NOT (NEW.data ? 'items') THEN RETURN NEW; END IF;
+        
+        v_items_array := NEW.data->'items';
+        IF jsonb_typeof(v_items_array) <> 'array' THEN RETURN NEW; END IF;
+
+        DELETE FROM docs_invoice_lines
+        WHERE invoice_id = NEW.id
+          AND id NOT IN (
+              SELECT COALESCE(elem->>'id', '') 
+              FROM jsonb_array_elements(v_items_array) AS elem
+              WHERE elem->>'id' IS NOT NULL
+          );
+
+        FOR v_item, v_idx IN SELECT value, ordinality FROM jsonb_array_elements(v_items_array) WITH ORDINALITY LOOP
+            v_serial_json := v_item->'serialNumbers';
+            IF v_serial_json IS NULL OR jsonb_typeof(v_serial_json) <> 'array' THEN v_serial_json := '[]'::jsonb; END 
+IF;
+
+            v_raw_id := v_item->>'id';
+            IF v_raw_id IS NULL OR v_raw_id = '' THEN v_raw_id := gen_random_uuid()::TEXT; END IF;
+            
+            v_line_id := v_raw_id;
+
+            INSERT INTO docs_invoice_lines (
+                id, invoice_id, company_id, product_id, quantity, unit_price, discount, tax, total, description, 
+line_value, discount_rate, discount_mode, type, uom, display_description, serial_numbers, display_index
+            ) VALUES (
+                v_line_id, NEW.id, NEW.company_id, v_item->>'productId', COALESCE((v_item->>'quantity')::NUMERIC, 0), 
+COALESCE((v_item->>'unitPrice')::NUMERIC, 0), COALESCE((v_item->>'discountAmount')::NUMERIC, 
+COALESCE((v_item->>'discount')::NUMERIC, 0)), COALESCE((v_item->>'taxValue')::NUMERIC, 
+COALESCE((v_item->>'taxAmount')::NUMERIC, 0)), COALESCE((v_item->>'total')::NUMERIC, 0), 
+COALESCE(v_item->>'description', ''), COALESCE((v_item->>'lineValue')::NUMERIC, COALESCE((v_item->>'total')::NUMERIC, 
+0)), COALESCE((v_item->>'discountRate')::NUMERIC, 0), COALESCE(v_item->>'discountMode', 'PERCENT'), 
+COALESCE(v_item->>'type', 'PRODUCT'), v_item->>'uom', v_item->>'displayDescription', v_serial_json, v_idx
+            ) ON CONFLICT (id) DO UPDATE SET
+                product_id = EXCLUDED.product_id, quantity = EXCLUDED.quantity, unit_price = EXCLUDED.unit_price, 
+discount = EXCLUDED.discount, tax = EXCLUDED.tax, total = EXCLUDED.total, description = EXCLUDED.description, 
+line_value = EXCLUDED.line_value, discount_rate = EXCLUDED.discount_rate, discount_mode = EXCLUDED.discount_mode, type 
+= EXCLUDED.type, uom = EXCLUDED.uom, display_description = EXCLUDED.display_description, serial_numbers = 
+EXCLUDED.serial_numbers, display_index = EXCLUDED.display_index;
+        END LOOP;
+
+        RETURN NEW;
+    END;
+$function$
+
+
+============================================================
+FUNCTION: sync_bill_lines_from_doc_data
+============================================================
+CREATE OR REPLACE FUNCTION public.sync_bill_lines_from_doc_data()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+    DECLARE
+        v_item JSONB;
+        v_items_array JSONB;
+        v_serial_json JSONB;
+        v_line_id TEXT;
+        v_raw_id TEXT;
+        v_idx INTEGER;
+    BEGIN
+        IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
+        IF NEW.data IS NULL OR NOT (NEW.data ? 'items') THEN RETURN NEW; END IF;
+        
+        v_items_array := NEW.data->'items';
+        IF jsonb_typeof(v_items_array) <> 'array' THEN RETURN NEW; END IF;
+
+        DELETE FROM docs_bill_lines
+        WHERE bill_id = NEW.id
+          AND id NOT IN (
+              SELECT COALESCE(elem->>'id', '') 
+              FROM jsonb_array_elements(v_items_array) AS elem
+              WHERE elem->>'id' IS NOT NULL
+          );
+
+        FOR v_item, v_idx IN SELECT value, ordinality FROM jsonb_array_elements(v_items_array) WITH ORDINALITY LOOP
+            v_serial_json := v_item->'serialNumbers';
+            IF v_serial_json IS NULL OR jsonb_typeof(v_serial_json) <> 'array' THEN v_serial_json := '[]'::jsonb; END 
+IF;
+
+            v_raw_id := v_item->>'id';
+            IF v_raw_id IS NULL OR v_raw_id = '' THEN v_raw_id := gen_random_uuid()::TEXT; END IF;
+            
+            v_line_id := v_raw_id;
+
+            INSERT INTO docs_bill_lines (
+                id, bill_id, company_id, product_id, quantity, unit_price, discount, tax, total, description, 
+line_value, discount_rate, discount_mode, type, serial_numbers, display_index
+            ) VALUES (
+                v_line_id, NEW.id, NEW.company_id, v_item->>'productId', COALESCE((v_item->>'quantity')::NUMERIC, 0), 
+COALESCE((v_item->>'unitPrice')::NUMERIC, 0), COALESCE((v_item->>'discountAmount')::NUMERIC, 
+COALESCE((v_item->>'discount')::NUMERIC, 0)), COALESCE((v_item->>'taxValue')::NUMERIC, 
+COALESCE((v_item->>'taxAmount')::NUMERIC, 0)), COALESCE((v_item->>'total')::NUMERIC, 0), 
+COALESCE(v_item->>'description', ''), COALESCE((v_item->>'lineValue')::NUMERIC, COALESCE((v_item->>'total')::NUMERIC, 
+0)), COALESCE((v_item->>'discountRate')::NUMERIC, 0), COALESCE(v_item->>'discountMode', 'PERCENT'), 
+COALESCE(v_item->>'type', 'PRODUCT'), v_serial_json, v_idx
+            ) ON CONFLICT (id) DO UPDATE SET
+                product_id = EXCLUDED.product_id, quantity = EXCLUDED.quantity, unit_price = EXCLUDED.unit_price, 
+discount = EXCLUDED.discount, tax = EXCLUDED.tax, total = EXCLUDED.total, description = EXCLUDED.description, 
+line_value = EXCLUDED.line_value, discount_rate = EXCLUDED.discount_rate, discount_mode = EXCLUDED.discount_mode, type 
+= EXCLUDED.type, serial_numbers = EXCLUDED.serial_numbers, display_index = EXCLUDED.display_index;
+        END LOOP;
+
+        RETURN NEW;
+    END;
+$function$
+
+
+============================================================
+FUNCTION: handle_offline_posted_sync
+============================================================
+CREATE OR REPLACE FUNCTION public.handle_offline_posted_sync()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+    DECLARE
+        v_bypass TEXT;
+        v_has_journal BOOLEAN := false;
+    BEGIN
+        v_bypass := current_setting('core.bypass_audit', true);
+        IF COALESCE(v_bypass, 'false') = 'true' THEN
+            RETURN NEW;
+        END IF;
+
+        IF NEW.status IN ('POSTED', 'PAID', 'PARTIAL') THEN
+            -- Check if it actually has a journal entry
+            IF NEW.journal_entry_id IS NOT NULL THEN
+                SELECT EXISTS(SELECT 1 FROM docs_journal_lines WHERE journal_id = NEW.journal_entry_id) INTO 
+v_has_journal;
+            ELSE
+                SELECT EXISTS(SELECT 1 FROM docs_journal_lines WHERE journal_id = 'JE-' || UPPER(NEW.id)) INTO 
+v_has_journal;
+            END IF;
+
+            -- If it has NO journal, this must be an offline POSTED sync that bypassed the RPC!
+            -- Instead of throwing a red error at the end of the transaction, we silently downgrade to DRAFT
+            -- so the sync succeeds and it saves as a draft.
+            IF NOT v_has_journal THEN
+                NEW.status := 'DRAFT';
+                IF NEW.data IS NOT NULL THEN
+                   NEW.data := jsonb_set(NEW.data, '{status}', to_jsonb('DRAFT'::text));
+                END IF;
+            END IF;
+        END IF;
+        
+        RETURN NEW;
+    END;
+    $function$
+
+
+============================================================
+FUNCTION: generate_document_numbers
+============================================================
+CREATE OR REPLACE FUNCTION public.generate_document_numbers()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+    DECLARE
+      v_field TEXT;
+      v_seq TEXT;
+      v_cid TEXT;
+      v_num TEXT;
+      v_status TEXT;
+      v_current_doc_num TEXT;
+      v_journal_id_cpay TEXT;
+      v_journal_id_vpay TEXT;
+    BEGIN
+      v_cid := (to_jsonb(NEW) ->> 'company_id');
+      v_status := (to_jsonb(NEW) ->> 'status');
+
+      IF TG_TABLE_NAME = 'docs_invoices' THEN v_seq := 'INVOICE'; v_current_doc_num := NEW.invoice_number;
+      ELSIF TG_TABLE_NAME = 'docs_bills' THEN v_seq := 'BILL'; v_current_doc_num := NEW.bill_number;
+      ELSIF TG_TABLE_NAME = 'docs_payments' THEN v_seq := 'PAYMENT'; v_current_doc_num := NEW.payment_number;
+      ELSIF TG_TABLE_NAME = 'docs_journals' THEN
+         v_current_doc_num := NEW.reference_number;
+         IF NEW.journal_type IN ('JOURNAL', 'EXPENSE') THEN
+            IF NEW.journal_type = 'EXPENSE' THEN
+               v_seq := 'EXPENSE';
+            ELSE
+               v_seq := 'JOURNAL';
+            END IF;
+         END IF;
+      ELSIF TG_TABLE_NAME = 'docs_credit_notes' THEN v_seq := 'CREDIT_NOTE'; v_current_doc_num := 
+NEW.credit_note_number;
+      ELSIF TG_TABLE_NAME = 'docs_loans' THEN v_seq := 'LOAN'; v_current_doc_num := NEW.loan_number;
+      ELSIF TG_TABLE_NAME = 'docs_products' THEN v_seq := 'PRODUCT'; v_current_doc_num := NEW.sku;
+      ELSIF TG_TABLE_NAME = 'docs_contacts' THEN v_seq := 'CONTACT'; v_current_doc_num := NEW.external_id;
+      END IF;
+
+      IF v_seq IS NOT NULL AND (v_status IS NULL OR v_status IN ('POSTED', 'PAID', 'PARTIAL', 'ACTIVE', 'OPEN')) AND 
+         (v_current_doc_num IS NULL OR v_current_doc_num = '' OR v_current_doc_num LIKE 'DRAFT%') THEN
+        IF v_cid IS NOT NULL THEN
+           v_num := get_next_company_doc_number(v_cid, v_seq);
+           
+           IF TG_TABLE_NAME = 'docs_invoices' THEN 
+              NEW.invoice_number := v_num;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{number}', to_jsonb(v_num)); END IF;
+              UPDATE docs_journals SET reference_number = v_num, reference = v_num, description = 'Invoice ' || v_num 
+WHERE id = COALESCE(NEW.journal_entry_id, 'JE-' || UPPER(NEW.id));
+           ELSIF TG_TABLE_NAME = 'docs_bills' THEN 
+              NEW.bill_number := v_num;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{number}', to_jsonb(v_num)); END IF;
+              UPDATE docs_journals SET reference_number = v_num, reference = v_num, description = 'AP: ' || v_num 
+WHERE id = COALESCE(NEW.journal_entry_id, 'JE-' || UPPER(NEW.id));
+           ELSIF TG_TABLE_NAME = 'docs_payments' THEN 
+              NEW.payment_number := v_num;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{number}', to_jsonb(v_num)); END IF;
+              
+              v_journal_id_cpay := 'JE-CPAY-' || replace(replace(UPPER(NEW.id), 'PAY-', ''), 'PAY-', '');
+              v_journal_id_vpay := 'JE-VPAY-' || replace(replace(UPPER(NEW.id), 'PAY-', ''), 'PAY-', '');
+              
+              UPDATE docs_journals 
+              SET reference_number = v_num, 
+                  reference = v_num, 
+                  journal_number = v_num,
+                  data = jsonb_set(jsonb_set(COALESCE(data, '{}'::jsonb), '{reference}', to_jsonb(v_num)), 
+'{reference_number}', to_jsonb(v_num))
+              WHERE id IN (v_journal_id_cpay, v_journal_id_vpay);
+              
+              UPDATE docs_journal_lines 
+              SET description = REPLACE(description, NEW.id, v_num) 
+              WHERE journal_id IN (v_journal_id_cpay, v_journal_id_vpay);
+              
+           ELSIF TG_TABLE_NAME = 'docs_journals' THEN 
+              NEW.reference_number := v_num;
+              IF NEW.data IS NOT NULL THEN 
+                 NEW.data := jsonb_set(jsonb_set(NEW.data, '{reference}', to_jsonb(v_num)), '{reference_number}', 
+to_jsonb(v_num));
+              END IF;
+           ELSIF TG_TABLE_NAME = 'docs_credit_notes' THEN 
+              NEW.credit_note_number := v_num;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{number}', to_jsonb(v_num)); END IF;
+              UPDATE docs_journals SET reference_number = v_num, reference = v_num WHERE id = 
+COALESCE(NEW.data->>'journalEntryId', 'JE-' || replace(replace(UPPER(NEW.id), 'CN-', ''), 'CN-', ''));
+           ELSIF TG_TABLE_NAME = 'docs_loans' THEN 
+              NEW.loan_number := v_num;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{number}', to_jsonb(v_num)); END IF;
+           ELSIF TG_TABLE_NAME = 'docs_products' THEN 
+              NEW.sku := v_num;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{sku}', to_jsonb(v_num)); END IF;
+           ELSIF TG_TABLE_NAME = 'docs_contacts' THEN 
+              NEW.external_id := v_num;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{externalId}', to_jsonb(v_num)); END IF;
+           END IF;
+        END IF;
+      END IF;
+
+      -- Ensure not-null constraints for draft documents (if sequence was not generated)
+      IF TG_TABLE_NAME = 'docs_invoices' THEN
+          IF NEW.invoice_number IS NULL OR NEW.invoice_number = '' THEN
+              NEW.invoice_number := 'DRAFT-' || NEW.id;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{number}', to_jsonb(NEW.invoice_number)); 
+END IF;
+          END IF;
+      ELSIF TG_TABLE_NAME = 'docs_bills' THEN
+          IF NEW.bill_number IS NULL OR NEW.bill_number = '' THEN
+              NEW.bill_number := 'DRAFT-' || NEW.id;
+              IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{number}', to_jsonb(NEW.bill_number)); END 
+IF;
+          END IF;
+      END IF;
+
+      IF TG_TABLE_NAME = 'docs_journals' THEN
+         IF NEW.journal_number IS NULL OR NEW.journal_number = '' OR (NEW.journal_number LIKE 'DRAFT%' AND NEW.status 
+!= 'DRAFT') THEN
+            NEW.journal_number := COALESCE(NEW.reference_number, NEW.id, 'JE-TMP');
+            IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{journal_number}', 
+to_jsonb(NEW.journal_number)); END IF;
+         END IF;
+         IF NEW.reference_number IS NULL OR NEW.reference_number = '' THEN
+            NEW.reference_number := NEW.journal_number;
+            IF NEW.data IS NOT NULL THEN NEW.data := jsonb_set(NEW.data, '{reference_number}', 
+to_jsonb(NEW.reference_number)); END IF;
+         END IF;
+         IF NEW.journal_date IS NULL THEN
+            NEW.journal_date := COALESCE(NEW.date, CURRENT_DATE);
+         END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+$function$
+
+
+============================================================
+FUNCTION: enforce_accounting_immutability
+============================================================
+CREATE OR REPLACE FUNCTION public.enforce_accounting_immutability()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+        DECLARE
+            v_is_authorized BOOLEAN := false;
+        BEGIN
+IF current_setting('core.bypass_audit', true) = 'true' THEN RETURN NEW; END IF;
+            BEGIN
+                SELECT EXISTS (
+                    SELECT 1 FROM docs_users 
+                    WHERE user_uuid = auth.uid() 
+                    AND role_id = 'role-admin'
+                ) INTO v_is_authorized;
+            EXCEPTION WHEN OTHERS THEN
+                v_is_authorized := false;
+            END;
+
+            IF v_is_authorized THEN
+                RETURN NEW;
+            END IF;
+
+            IF (OLD.status IN ('POSTED', 'VOID', 'VOIDED', 'PAID', 'PARTIAL', 'PARTIAL_REFUNDED', 'FULL_REFUNDED')) 
+THEN
+                IF (NEW.status = 'DRAFT' OR NEW.status = 'DRAFTED') THEN
+                     IF OLD.status != 'DRAFT' THEN
+                         RETURN NEW;
+                     END IF;
+                END IF;
+
+                IF (NEW.status IN ('VOID', 'VOIDED', 'PAID', 'PARTIAL', 'PARTIAL_REFUNDED', 'FULL_REFUNDED') AND 
+OLD.status = 'POSTED') THEN
+                     RETURN NEW;
+                END IF;
+
+                IF (NEW.status IN ('PAID', 'VOID', 'VOIDED', 'PARTIAL_REFUNDED', 'FULL_REFUNDED') AND OLD.status IN 
+('PAID', 'PARTIAL')) THEN
+                     RETURN NEW;
+                END IF;
+                
+                IF (NEW.status = OLD.status) THEN
+                    IF TG_TABLE_NAME = 'docs_invoices' OR TG_TABLE_NAME = 'docs_bills' THEN
+                        IF NEW.total != OLD.total OR NEW.data->'items' != OLD.data->'items' THEN
+                            RAISE EXCEPTION 'Accounting Integrity Violation: Cannot modify items or total on locked 
+record % (%) without resetting to Draft first.', OLD.id, OLD.status;
+                        END IF;
+                    ELSIF TG_TABLE_NAME = 'docs_payments' THEN
+                        IF NEW.amount != OLD.amount OR NEW.data->'appliedInvoices' != OLD.data->'appliedInvoices' THEN
+                            RAISE EXCEPTION 'Accounting Integrity Violation: Cannot modify payment amount or applied 
+invoices on locked record % (%) without resetting to Draft first.', OLD.id, OLD.status;
+                        END IF;
+                    END IF;
+                    RETURN NEW;
+                END IF;
+
+                RAISE EXCEPTION 'Accounting Integrity Violation: Record % is locked (%) and cannot be modified 
+directly. (Transition % -> %)', OLD.id, OLD.status, OLD.status, NEW.status;
+            END IF;
+            RETURN NEW;
+        END;
+        $function$
+
+
+============================================================
+FUNCTION: generate_inventory_movements
+============================================================
+CREATE OR REPLACE FUNCTION public.generate_inventory_movements()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+      
+      
+DECLARE
+  item RECORD;
+  adj_item JSONB;
+  v_wh_id TEXT;
+  v_is_posted BOOLEAN;
+  v_tx_cost NUMERIC;
+  v_data JSONB;
+  v_status_new TEXT;
+  v_status_old TEXT;
+  v_bill_discount_factor NUMERIC := 1.0;
+  v_items JSONB;
+BEGIN
+  IF current_setting('core.bypass_audit', true) = 'true' THEN RETURN NEW; END IF;
+  IF pg_trigger_depth() > 3 THEN RETURN NEW; END IF;
+  
+  IF TG_OP = 'UPDATE' THEN
+      IF NEW.status IS NOT DISTINCT FROM OLD.status
+          AND (NULLIF(to_jsonb(NEW)->>'date', '')::DATE) IS NOT DISTINCT FROM (NULLIF(to_jsonb(OLD)->>'date', 
+'')::DATE)
+          AND NEW.data IS NOT DISTINCT FROM OLD.data
+          AND (NULLIF(to_jsonb(NEW)->>'subtotal', '')::NUMERIC) IS NOT DISTINCT FROM 
+(NULLIF(to_jsonb(OLD)->>'subtotal', '')::NUMERIC) THEN
+         RETURN NEW;
+     END IF;
+  END IF;
+
+  v_status_new := (to_jsonb(NEW) ->> 'status');
+  IF v_status_new IS NULL AND TG_TABLE_NAME = 'docs_inventory_adjustments' THEN 
+     v_status_new := 'POSTED';
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+     v_status_old := (to_jsonb(OLD) ->> 'status');
+     IF v_status_old IS NULL AND TG_TABLE_NAME = 'docs_inventory_adjustments' THEN
+        v_status_old := 'POSTED';
+     END IF;
+  ELSE
+     v_status_old := NULL;
+  END IF;
+
+  v_is_posted := v_status_new IN ('POSTED', 'PAID', 'PARTIAL', 'IN_PAYMENT', 'OPEN', 'CLOSED', 'FULL_REFUNDED', 
+'PARTIAL_REFUNDED');
+
+  IF TG_OP = 'UPDATE' THEN
+     DELETE FROM docs_inventory_transactions WHERE reference_id = NEW.id;
+  END IF;
+
+  IF TG_TABLE_NAME = 'docs_inventory_adjustments' AND v_is_posted THEN
+      v_data := (row_to_json(NEW)::jsonb)->'data';
+      IF v_data IS NOT NULL AND (v_data->'items') IS NOT NULL THEN
+        FOR adj_item IN SELECT * FROM jsonb_array_elements(v_data->'items') LOOP
+          v_wh_id := COALESCE(NULLIF(adj_item->>'warehouseId', ''), NULLIF(v_data->>'warehouseId', ''), 'wh-' || 
+NEW.company_id);
+          INSERT INTO docs_inventory_transactions (id, company_id, product_id, warehouse_id, transaction_type, 
+quantity, reference_id, reference_type, date, cost_price)
+          VALUES (
+            'mov-adj-' || NEW.id || '-' || COALESCE(NULLIF(adj_item->>'productId', ''), md5(adj_item::text)), 
+            NEW.company_id, 
+            NULLIF(adj_item->>'productId', ''), 
+            v_wh_id, 
+            CASE WHEN NULLIF(adj_item->>'difference', '')::NUMERIC >= 0 THEN 'IN' ELSE 'OUT' END, 
+            ABS(NULLIF(adj_item->>'difference', '')::NUMERIC), 
+            NEW.id, 
+            'ADJUSTMENT', 
+            COALESCE(NULLIF(v_data->>'date', '')::DATE, NEW.updated_at::DATE, NOW()::DATE), 
+            COALESCE(NULLIF(adj_item->>'costPrice', '')::NUMERIC, (SELECT cost_price FROM docs_products WHERE id = 
+NULLIF(adj_item->>'productId', '')), 0)
+          )
+          ON CONFLICT (id) DO UPDATE SET quantity = EXCLUDED.quantity, cost_price = EXCLUDED.cost_price, updated_at = 
+NOW();
+        END LOOP;
+      END IF;
+  END IF;
+
+  IF TG_TABLE_NAME = 'docs_invoices' AND v_is_posted THEN
+    v_data := (row_to_json(NEW)::jsonb)->'data';
+    v_items := COALESCE(v_data->'items', '[]'::jsonb);
+    
+    FOR adj_item IN SELECT * FROM jsonb_array_elements(v_items) LOOP
+      IF NULLIF(adj_item->>'productId', '') IS NOT NULL AND (adj_item->>'type' = 'PRODUCT' OR adj_item->>'type' IS 
+NULL) THEN
+        v_wh_id := 'wh-' || NEW.company_id;
+        
+        SELECT avg_cost INTO v_tx_cost FROM docs_product_costs 
+        WHERE product_id = adj_item->>'productId' AND warehouse_id = v_wh_id AND company_id = NEW.company_id;
+        
+        IF v_tx_cost IS NULL THEN
+            SELECT cost_price INTO v_tx_cost FROM docs_products WHERE id = adj_item->>'productId';
+        END IF;
+        IF v_tx_cost IS NULL THEN v_tx_cost := 0; END IF;
+
+        INSERT INTO docs_inventory_transactions (id, company_id, product_id, warehouse_id, transaction_type, quantity, 
+reference_id, reference_type, date, cost_price, unit_price)
+        VALUES (
+          'mov-inv-' || NEW.id || '-' || COALESCE(NULLIF(adj_item->>'id', ''), md5(adj_item::text)),
+          NEW.company_id,
+          adj_item->>'productId',
+          v_wh_id,
+          'OUT',
+          COALESCE(NULLIF(adj_item->>'quantity', '')::NUMERIC, 0),
+          NEW.id,
+          'INVOICE',
+          COALESCE((NULLIF(to_jsonb(NEW)->>'date', '')::DATE), NOW()::DATE),
+          v_tx_cost,
+          COALESCE(NULLIF(adj_item->>'unitPrice', '')::NUMERIC, 0)
+        ) ON CONFLICT (id) DO UPDATE SET quantity = EXCLUDED.quantity, cost_price = EXCLUDED.cost_price, updated_at = 
+NOW();
+      END IF;
+    END LOOP;
+  END IF;
+
+  IF TG_TABLE_NAME = 'docs_bills' AND v_is_posted THEN
+    IF COALESCE((NULLIF(to_jsonb(NEW)->>'subtotal', '')::NUMERIC), 0) > 0 THEN 
+       v_bill_discount_factor := ROUND(((NULLIF(to_jsonb(NEW)->>'subtotal', '')::NUMERIC) - 
+COALESCE((NULLIF(to_jsonb(NEW)->>'discount_total', '')::NUMERIC), 0)) / (NULLIF(to_jsonb(NEW)->>'subtotal', 
+'')::NUMERIC), 4);
+    ELSE 
+       v_bill_discount_factor := 1.0;
+    END IF;
+
+    v_data := (row_to_json(NEW)::jsonb)->'data';
+    v_items := COALESCE(v_data->'items', '[]'::jsonb);
+
+    FOR adj_item IN SELECT * FROM jsonb_array_elements(v_items) LOOP
+      IF NULLIF(adj_item->>'productId', '') IS NOT NULL AND (adj_item->>'type' = 'PRODUCT' OR adj_item->>'type' IS 
+NULL) THEN
+        v_wh_id := 'wh-' || NEW.company_id;
+        
+        v_tx_cost := CASE 
+                       WHEN COALESCE(NULLIF(adj_item->>'quantity', '')::NUMERIC, 0) > 0 THEN 
+ROUND((COALESCE(NULLIF(adj_item->>'lineValue', '')::NUMERIC, COALESCE(NULLIF(adj_item->>'quantity', '')::NUMERIC, 0) * 
+COALESCE(NULLIF(adj_item->>'unitPrice', '')::NUMERIC, 0)) * v_bill_discount_factor) / NULLIF(adj_item->>'quantity', 
+'')::NUMERIC, 4)
+                     ELSE ROUND(COALESCE(NULLIF(adj_item->>'unitPrice', '')::NUMERIC, 0) * v_bill_discount_factor, 4)
+                     END;
+
+        INSERT INTO docs_inventory_transactions (id, company_id, product_id, warehouse_id, transaction_type, quantity, 
+reference_id, reference_type, date, cost_price, unit_price)
+        VALUES (
+          'mov-bil-' || NEW.id || '-' || COALESCE(NULLIF(adj_item->>'id', ''), md5(adj_item::text)),
+          NEW.company_id,
+          adj_item->>'productId',
+          v_wh_id,
+          'IN',
+          COALESCE(NULLIF(adj_item->>'quantity', '')::NUMERIC, 0),
+          NEW.id,
+          'BILL',
+          COALESCE((NULLIF(to_jsonb(NEW)->>'date', '')::DATE), NOW()::DATE),
+          v_tx_cost,
+          COALESCE(NULLIF(adj_item->>'unitPrice', '')::NUMERIC, 0)
+        ) ON CONFLICT (id) DO UPDATE SET quantity = EXCLUDED.quantity, cost_price = EXCLUDED.cost_price, updated_at = 
+NOW();
+      END IF;
+    END LOOP;
+  END IF;
+
+  IF TG_TABLE_NAME = 'docs_credit_notes' AND v_is_posted THEN
+    v_data := (row_to_json(NEW)::jsonb)->'data';
+    v_items := COALESCE(v_data->'items', '[]'::jsonb);
+
+    FOR adj_item IN SELECT * FROM jsonb_array_elements(v_items) LOOP
+      IF NULLIF(adj_item->>'productId', '') IS NOT NULL AND (adj_item->>'type' = 'PRODUCT' OR adj_item->>'type' IS 
+NULL) THEN
+        v_wh_id := 'wh-' || NEW.company_id;
+        
+        SELECT avg_cost INTO v_tx_cost FROM docs_product_costs 
+        WHERE product_id = adj_item->>'productId' AND warehouse_id = v_wh_id AND company_id = NEW.company_id;
+        
+        IF v_tx_cost IS NULL THEN
+            SELECT cost_price INTO v_tx_cost FROM docs_products WHERE id = adj_item->>'productId';
+        END IF;
+        IF v_tx_cost IS NULL THEN v_tx_cost := 0; END IF;
+
+        INSERT INTO docs_inventory_transactions (id, company_id, product_id, warehouse_id, transaction_type, quantity, 
+reference_id, reference_type, date, cost_price, unit_price)
+        VALUES (
+          'mov-cn-' || NEW.id || '-' || COALESCE(NULLIF(adj_item->>'id', ''), md5(adj_item::text)),
+          NEW.company_id,
+          adj_item->>'productId',
+          v_wh_id,
+          'IN',
+          COALESCE(NULLIF(adj_item->>'quantity', '')::NUMERIC, 0),
+          NEW.id,
+          'CREDIT_NOTE',
+          COALESCE((NULLIF(to_jsonb(NEW)->>'date', '')::DATE), NOW()::DATE),
+          v_tx_cost,
+          COALESCE(NULLIF(adj_item->>'unitPrice', '')::NUMERIC, 0)
+        ) ON CONFLICT (id) DO UPDATE SET quantity = EXCLUDED.quantity, cost_price = EXCLUDED.cost_price, updated_at = 
+NOW();
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN NEW;
+END;
+
+      
+      $function$
+
+
+

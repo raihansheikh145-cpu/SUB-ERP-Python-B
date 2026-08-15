@@ -1,0 +1,813 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator client_py {
+  provider                    = "prisma-client-py"
+  enable_experimental_decimal = "true"
+  recursive_type_depth        = "5"
+}
+
+
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model DocsProduct {
+  id                  String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at          DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  company_id          String?
+  name                String
+  sku                 String
+  price               Decimal?  @default(0) @db.Decimal
+  cost_price          Decimal?  @default(0) @db.Decimal
+  is_locked           Boolean?  @default(false)
+  last_reconciled_at  DateTime? @db.Timestamptz(6)
+  uom                 String?
+  type                String?
+  brand               String?
+  tax_code            String?
+  category            String?
+  external_id         String?
+  description         String?
+  tracking_type       String?
+  invoicing_policy    String?
+  initial_cost        Decimal?  @default(0) @db.Decimal
+  last_purchase_rate  Decimal?  @default(0) @db.Decimal
+  last_purchase_price Decimal?  @default(0) @db.Decimal
+  quantity_on_hand    Decimal?  @default(0) @db.Decimal
+  is_in_pos           Boolean?  @default(true)
+  can_be_sold         Boolean?  @default(true)
+  can_be_purchased    Boolean?  @default(true)
+  can_be_expensed     Boolean?  @default(false)
+  track_inventory     Boolean?  @default(true)
+  company_ids         String[]
+  serial_numbers      Json?     @default("[]")
+
+  @@map("docs_products")
+}
+
+model DocsContact {
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at       DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  company_id       String?
+  name             String
+  type             String
+  email            String?
+  phone            String?
+  address          String?
+  external_id      String?
+  company_ids      String[]
+  opening_balances Json?     @default("{}")
+  is_customer      Boolean?  @default(false)
+  is_vendor        Boolean?  @default(false)
+  is_lender        Boolean?  @default(false)
+
+  @@map("docs_contacts")
+}
+
+model DocsJournal {
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at       DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  reference_number String?
+  company_id       String
+  date             DateTime? @db.Date
+  journal_type     String?
+  status           String
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  is_immutable     Boolean?  @default(false)
+  reversal_of_id   String?
+  reversed_by_id   String?
+  fiscal_period_id String?   @db.Uuid
+  journal_date     DateTime  @db.Date
+  journal_number   String?
+  reference        String?
+  description      String?
+  company_code     String?
+  created_by_id    String?
+  prepared_by      String?
+
+  @@map("docs_journals")
+}
+
+model DocsJournalLine {
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  journal_id  String
+  company_id  String
+  account_id  String
+  contact_id  String?
+  debit       Decimal?  @default(0) @db.Decimal
+  credit      Decimal?  @default(0) @db.Decimal
+  description String?
+  updated_at  DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@map("docs_journal_lines")
+}
+
+model ImportProductTemplate {
+  id               Int      @id @default(autoincrement())
+  company_id       String?
+  name             String
+  sku              String?
+  price            Decimal? @default(0) @db.Decimal
+  cost_price       Decimal? @default(0) @db.Decimal
+  quantity_on_hand Decimal? @default(0) @db.Decimal
+  category         String?  @default("General")
+  brand            String?
+  uom              String?  @default("pcs")
+  description      String?
+
+  @@map("import_products_template")
+}
+
+model ImportContactTemplate {
+  id              Int      @id @default(autoincrement())
+  company_id      String?
+  name            String
+  type            String?  @default("CUSTOMER")
+  email           String?
+  phone           String?
+  address         String?
+  opening_balance Decimal? @default(0) @db.Decimal
+
+  @@map("import_contacts_template")
+}
+
+model AuthUser {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  hashedPassword    String    @map("hashed_password")
+  role              String    @default("authenticated")
+  isActive          Boolean   @default(true) @map("is_active")
+  resetToken        String?   @map("reset_token")
+  resetTokenExpires DateTime? @map("reset_token_expires")
+  approvalToken     String?   @map("approval_token")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("auth_users")
+}
+
+model DocsUser {
+  id              String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updatedAt       DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
+  companyId       String?   @map("company_id")
+  userUuid        String?   @map("user_uuid") @db.Uuid
+  pin             String?
+  name            String
+  email           String    @unique(map: "idx_docs_users_email")
+  username        String?   @unique(map: "idx_docs_users_username")
+  roleId          String?   @map("role_id")
+  status          String
+  emailConfirmed  Boolean?  @default(true) @map("email_confirmed")
+  invitationToken String?   @map("invitation_token")
+  companyIds      Json?     @default("[]") @map("company_ids")
+  createdAt       DateTime? @default(now()) @map("created_at")
+
+  @@map("docs_users")
+}
+
+model DocsCompanies {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String?
+  code       String
+  name       String
+
+  @@map("docs_companies")
+}
+
+model DocsAccounts {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String
+  name       String
+  code       String
+  type       String
+  sub_type   String?
+
+  @@map("docs_accounts")
+}
+
+model DocsInvoices {
+  audit_log  Json?
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at       DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  invoice_number   String
+  company_id       String
+  date             DateTime? @db.Date
+  customer_id      String?
+  status           String
+  total            Decimal?  @default(0) @db.Decimal
+  version          Int?      @default(1)
+  invoice_date     DateTime  @db.Date
+  due_date         DateTime? @db.Date
+  subtotal         Decimal?  @default(0) @db.Decimal
+  tax_total        Decimal?  @default(0) @db.Decimal
+  discount_total   Decimal?  @default(0) @db.Decimal
+  company_code     String?
+  created_by_id    String?
+  sr_id            String?
+  reference        String?
+  salesperson      String?
+  customer_note    String?
+  delivery_person  String?
+  messages         Json?     @default("[]")
+  total_profit     Decimal?  @default(0) @db.Decimal
+  journal_entry_id String?
+
+  @@map("docs_invoices")
+}
+
+model DocsInvoiceLines {
+  id                  String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  invoice_id          String
+  company_id          String
+  product_id          String?
+  quantity            Decimal   @db.Decimal
+  unit_price          Decimal   @db.Decimal
+  discount            Decimal?  @default(0) @db.Decimal
+  tax                 Decimal?  @default(0) @db.Decimal
+  total               Decimal   @db.Decimal
+  description         String?
+  updated_at          DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  type                String?
+  uom                 String?
+  display_description String?
+  line_value          Decimal?  @default(0) @db.Decimal
+  discount_mode       String?
+  discount_rate       Decimal?  @default(0) @db.Decimal
+  serial_numbers      Json?     @default("[]")
+  cost_price_at_sale  Decimal?  @db.Decimal
+  display_index       Int?      @default(0)
+
+  @@map("docs_invoice_lines")
+}
+
+model DocsBills {
+  audit_log  Json?
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at       DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  bill_number      String
+  company_id       String
+  date             DateTime? @db.Date
+  vendor_id        String?
+  status           String
+  total            Decimal?  @default(0) @db.Decimal
+  version          Int?      @default(1)
+  bill_date        DateTime  @db.Date
+  due_date         DateTime? @db.Date
+  subtotal         Decimal?  @default(0) @db.Decimal
+  tax_total        Decimal?  @default(0) @db.Decimal
+  discount_total   Decimal?  @default(0) @db.Decimal
+  company_code     String?
+  created_by_id    String?
+  reference        String?
+  journal_entry_id String?
+
+  @@map("docs_bills")
+}
+
+model DocsBillLines {
+  id             String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  bill_id        String
+  company_id     String
+  product_id     String?
+  quantity       Decimal   @db.Decimal
+  unit_price     Decimal   @db.Decimal
+  discount       Decimal?  @default(0) @db.Decimal
+  tax            Decimal?  @default(0) @db.Decimal
+  total          Decimal   @db.Decimal
+  description    String?
+  updated_at     DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  type           String?
+  line_value     Decimal?  @default(0) @db.Decimal
+  discount_mode  String?
+  discount_rate  Decimal?  @default(0) @db.Decimal
+  discount_value Decimal?  @default(0) @db.Decimal
+  serial_numbers Json?     @default("[]")
+  display_index  Int?      @default(0)
+
+  @@map("docs_bill_lines")
+}
+
+model DocsPayments {
+  audit_log  Json?
+  id                 String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at         DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  payment_number     String?
+  company_id         String
+  date               DateTime? @db.Date
+  contact_id         String?
+  status             String
+  amount             Decimal   @default(0) @db.Decimal
+  payment_date       DateTime  @db.Date
+  type               String
+  method             String?
+  account_id         String?
+  partner_account_id String?
+  reference          String?
+  applied_invoices   Json?
+  applied_bills      Json?
+
+  @@map("docs_payments")
+}
+
+model DocsCreditNotes {
+  audit_log  Json?
+  id                 String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at         DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  credit_note_number String?
+  company_id         String
+  date               DateTime? @db.Date
+  total              Decimal?  @default(0) @db.Decimal
+  status             String
+  customer_id        String?
+  cn_number          String?
+  credit_note_date   DateTime  @db.Date
+  due_date           DateTime? @db.Date
+  subtotal           Decimal?  @default(0) @db.Decimal
+  tax_total          Decimal?  @default(0) @db.Decimal
+  discount_total     Decimal?  @default(0) @db.Decimal
+  origin_invoice_id  String?
+
+  @@map("docs_credit_notes")
+}
+
+model DocsCreditNoteLines {
+  id                  String   @id @default(uuid())
+  credit_note_id      String?
+  company_id          String
+  product_id          String?
+  type                String?
+  uom                 String?
+  description         String?
+  display_description String?
+  quantity            Decimal? @default(0) @db.Decimal
+  unit_price          Decimal? @default(0) @db.Decimal
+  line_value          Decimal? @default(0) @db.Decimal
+  total               Decimal? @default(0) @db.Decimal
+  discount_mode       String?
+  discount_rate       Decimal? @default(0) @db.Decimal
+  serial_numbers      Json?    @default("[]")
+  display_index       Int?     @default(0)
+
+  @@map("docs_credit_note_lines")
+}
+
+model DocsRoles {
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at  DateTime? @updatedAt @db.Timestamptz(6)
+  company_id  String?
+  name        String
+  color       String?
+  is_system   Boolean?  @default(false)
+  description String?
+  permissions String[]  @default([])
+
+  @@map("docs_roles")
+}
+
+model DocsInventoryAdjustments {
+  audit_log  Json?
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String?
+  status     String?   @default("DRAFT")
+
+  @@map("docs_inventory_adjustments")
+}
+
+model DocsInventoryTransactions {
+  audit_log  Json?
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  company_id       String
+  product_id       String
+  transaction_type String
+  quantity         Decimal   @db.Decimal
+  reference_id     String?
+  reference_type   String?
+  date             DateTime  @db.Date
+  cost_price       Decimal?  @default(0) @db.Decimal
+  unit_price       Decimal?  @default(0) @db.Decimal
+  updated_at       DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  warehouse_id     String    @default("main-warehouse")
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  created_by_id    String?   @db.Uuid
+
+  @@map("docs_inventory_transactions")
+}
+
+model DocsTasks {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String?
+
+  @@map("docs_tasks")
+}
+
+model DocsAttendance {
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at       DateTime? @updatedAt @db.Timestamptz(6)
+  company_id       String
+  attendance_date  DateTime  @db.Date
+  status           String
+  employee_id      String
+  late_minutes     Int?      @default(0)
+  overtime_hours   Decimal?  @default(0) @db.Decimal
+  is_important_day Boolean?  @default(false)
+
+  @@map("docs_attendance")
+}
+
+model DocsLoans {
+  id                    String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at            DateTime? @updatedAt @db.Timestamptz(6)
+  company_id            String
+  loan_number           String
+  date                  DateTime? @db.Date
+  amount                Decimal?  @default(0) @db.Decimal
+  status                String
+  name                  String?
+  type                  String?
+  notes                 String?
+  contact_id            String?
+  start_date            DateTime? @db.Date
+  term_months           Int?      @default(0)
+  interest_rate         Decimal?  @default(0) @db.Decimal
+  interest_type         String?
+  principal_amount      Decimal?  @default(0) @db.Decimal
+  paid_periods          String[]  @default([])
+  journal_entry_id      String?
+  amortization_schedule Json?     @default("[]")
+
+  @@map("docs_loans")
+}
+
+model DocsPayslips {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String?
+
+  @@map("docs_payslips")
+}
+
+model DocsAdvanceSalaries {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String?
+
+  @@map("docs_advance_salaries")
+}
+
+model DocsCategories {
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at  DateTime? @updatedAt @db.Timestamptz(6)
+  company_id  String
+  code        String
+  name        String
+  description String?
+
+  @@map("docs_categories")
+}
+
+model DocsBrands {
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at  DateTime? @updatedAt @db.Timestamptz(6)
+  company_id  String
+  code        String
+  name        String
+  description String?
+
+  @@map("docs_brands")
+}
+
+model DocsCommissionTargets {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String?
+
+  @@map("docs_commission_targets")
+}
+
+model DocsHolidays {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @updatedAt @db.Timestamptz(6)
+  company_id String?
+
+  @@map("docs_holidays")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model company_doc_sequences {
+  company_code String
+  seq_group    String
+  last_value   Int?   @default(0)
+
+  @@id([company_code, seq_group])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model company_users {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String  @db.Uuid
+  company_id String
+  role       String? @default("USER")
+  user_uuid  String? @db.Uuid
+
+  @@unique([user_id, company_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_audit_log {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  table_name      String
+  record_id       String
+  company_id      String?
+  action_type     String
+  old_values      Json?
+  new_values      Json?
+  user_uuid       String?   @db.Uuid
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  ip_address      String?
+  user_agent      String?
+  function_source String?
+  record_status   String?
+  document_number String?
+  record_version  Int?
+
+  @@index([company_id], map: "idx_docs_audit_log_company")
+  @@index([document_number], map: "idx_docs_audit_log_doc_number")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_audit_logs {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  company_id  String
+  user_id     String?
+  action      String
+  table_name  String
+  record_id   String
+  client_info Json?
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([company_id, created_at(sort: Desc)], map: "idx_audit_company")
+  @@index([table_name, record_id], map: "idx_audit_record")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_cash_ledger {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  company_id       String
+  date             DateTime  @db.Date
+  journal_id       String
+  line_id          String
+  reference_number String?
+  journal_type     String?
+  description      String?
+  debit            Decimal?  @default(0) @db.Decimal
+  credit           Decimal?  @default(0) @db.Decimal
+  impact           Decimal?  @default(0) @db.Decimal
+  partner_name     String?
+  prepared_by      String?
+  created_at       DateTime? @db.Timestamptz(6)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([company_id, date], map: "idx_cash_ledger_company_date")
+  @@index([journal_id], map: "idx_cash_ledger_journal_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_contact_companies {
+  contact_id String
+  company_id String
+
+  @@id([contact_id, company_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_document_sequences {
+  company_id    String
+  document_type String
+  last_sequence BigInt? @default(0)
+
+  @@id([company_id, document_type])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_financial_periods {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id String
+  year_name  String
+  start_date DateTime  @db.Date
+  end_date   DateTime  @db.Date
+  status     String    @default("OPEN")
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_fiscal_periods {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  company_id String
+  name       String
+  start_date DateTime  @db.Date
+  end_date   DateTime  @db.Date
+  is_closed  Boolean?  @default(false)
+  closed_at  DateTime? @db.Timestamptz(6)
+  closed_by  String?
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([company_id], map: "idx_fiscal_company")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_idempotency_keys {
+  idempotency_key String    @id
+  user_id         String?
+  response_code   Int?
+  response_body   Json?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  expires_at      DateTime? @default(dbgenerated("(now() + '24:00:00'::interval)")) @db.Timestamptz(6)
+}
+
+model docs_leaves {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @db.Timestamptz(6)
+  company_id String?
+
+  @@index([company_id, updated_at(sort: Desc)], map: "idx_leaves_company")
+
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_loan_amortization_lines {
+  id             BigInt   @id @default(autoincrement())
+  loan_id        String?
+  company_id     String
+  payment_date   DateTime @db.Date
+  period         Int
+  status         String
+  balance        Decimal? @default(0) @db.Decimal
+  payment        Decimal? @default(0) @db.Decimal
+  interest       Decimal? @default(0) @db.Decimal
+  principal      Decimal? @default(0) @db.Decimal
+  interest_paid  Boolean? @default(false)
+  principal_paid Boolean? @default(false)
+
+  @@index([loan_id, company_id, payment_date], map: "idx_docs_loan_amort_lookup")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_product_companies {
+  product_id String
+  company_id String
+
+  @@id([product_id, company_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_product_costs {
+  id           String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  company_id   String
+  product_id   String
+  warehouse_id String
+  avg_cost     Decimal?  @default(0) @db.Decimal
+  total_qty    Decimal?  @default(0) @db.Decimal
+  total_value  Decimal?  @default(0) @db.Decimal
+  updated_at   DateTime? @default(now()) @db.Timestamptz(6)
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([company_id], map: "idx_docs_product_costs_company")
+  @@index([company_id], map: "idx_docs_product_costs_company_id")
+  @@index([product_id], map: "idx_docs_product_costs_product")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_product_stocks {
+  id               BigInt    @id @default(autoincrement())
+  product_id       String?
+  company_id       String
+  quantity         Decimal?  @default(0) @db.Decimal
+  initial_quantity Decimal?  @default(0) @db.Decimal
+  total_added      Decimal?  @default(0) @db.Decimal
+  total_out        Decimal?  @default(0) @db.Decimal
+  avg_cost_price   Decimal?  @default(0) @db.Decimal
+  total_valuation  Decimal?  @default(0) @db.Decimal
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([product_id, company_id], map: "idx_docs_product_stock_lookup")
+  @@index([company_id], map: "idx_docs_product_stocks_company_id")
+  @@index([product_id], map: "idx_docs_product_stocks_product")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_report_jobs {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id    String
+  report_type   String
+  parameters    Json?
+  status        String    @default("PENDING")
+  result_url    String?
+  error_message String?
+  user_uuid     String?   @db.Uuid
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  completed_at  DateTime? @db.Timestamptz(6)
+  requested_by  String?
+  started_at    DateTime? @db.Timestamptz(6)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_stock_movements {
+  id            BigInt    @id @default(autoincrement())
+  product_id    String?
+  company_id    String
+  movement_type String
+  quantity      Decimal   @db.Decimal
+  unit_cost     Decimal   @db.Decimal
+  total_value   Decimal   @db.Decimal
+  reference_id  String?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([company_id, created_at], map: "idx_docs_stock_movements_company_created")
+  @@index([company_id], map: "idx_docs_stock_movements_company_id")
+  @@index([product_id], map: "idx_docs_stock_movements_product")
+  @@index([company_id, product_id, created_at(sort: Desc)], map: "idx_stock_movements_avco_lookup")
+  @@index([company_id, product_id, movement_type], map: "idx_stock_movements_lookup")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_system_logs {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  level      String?   @default("INFO")
+  category   String?
+  message    String?
+  payload    Json?
+  trace_id   String?
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([level, created_at(sort: Desc)], map: "idx_syslog_level")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_user_companies {
+  user_id    String
+  company_id String
+
+  @@id([user_id, company_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_user_company_access {
+  user_uuid  String    @db.Uuid
+  company_id String
+  role_id    String
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@id([user_uuid, company_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model docs_warehouses {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  updated_at DateTime? @db.Timestamptz(6)
+  company_id String
+  code       String
+  name       String
+  is_default Boolean   @default(false)
+
+  @@unique([company_id, code], map: "unq_warehouse_code_company")
+  @@index([company_id], map: "idx_docs_warehouses_company")
+  @@index([company_id, is_default], map: "idx_docs_warehouses_lookup")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model report_profit_and_loss {
+  id           BigInt    @id @default(autoincrement())
+  company_id   String
+  start_date   DateTime  @db.Date
+  end_date     DateTime  @db.Date
+  account_id   String
+  account_name String
+  account_type String
+  total_debit  Decimal?  @default(0.0000) @db.Decimal(15, 4)
+  total_credit Decimal?  @default(0.0000) @db.Decimal(15, 4)
+  balance      Decimal?  @default(0.0000) @db.Decimal(15, 4)
+  generated_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([company_id, start_date, end_date], map: "idx_report_pl_lookup")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sequence_counters {
+  company_code String
+  seq_group    String
+  last_value   Int?   @default(0)
+
+  @@id([company_code, seq_group])
+}

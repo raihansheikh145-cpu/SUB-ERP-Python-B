@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice {{ invoice.invoiceNumber | default(invoice.id) }}{% endblock %}
+
+{% block content %}
+<div class="header">
+    <div class="company-info">
+        <h1>{{ company.name }}</h1>
+        <p>{{ company.address | default('') }}</p>
+        {% if company.registrationNumber %}
+        <p>Reg: {{ company.registrationNumber }}</p>
+        {% endif %}
+        {% if company.taxId %}
+        <p>Tax ID: {{ company.taxId }}</p>
+        {% endif %}
+    </div>
+    
+    <div class="doc-title">
+        <h2>INVOICE</h2>
+        <table class="meta-table">
+            <tr>
+                <td>Invoice #</td>
+                <td>{{ invoice.invoiceNumber | default(invoice.id[:8]) }}</td>
+            </tr>
+            <tr>
+                <td>Date</td>
+                <td>{{ invoice.date }}</td>
+            </tr>
+            {% if invoice.dueDate %}
+            <tr>
+                <td>Due Date</td>
+                <td>{{ invoice.dueDate }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+                <td>Status</td>
+                <td>
+                    <span class="badge {{ invoice.status | lower }}">
+                        {{ invoice.status }}
+                    </span>
+                </td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<div class="info-section">
+    <div class="info-box">
+        <h3>Billed To</h3>
+        <p><strong>{{ client.name }}</strong></p>
+        {% if client.address %}
+        <p>{{ client.address }}</p>
+        {% endif %}
+        {% if client.email %}
+        <p>{{ client.email }}</p>
+        {% endif %}
+        {% if client.phone %}
+        <p>{{ client.phone }}</p>
+        {% endif %}
+    </div>
+</div>
+
+<table class="items-table">
+    <thead>
+        <tr>
+            <th>Description</th>
+            <th class="right">Qty</th>
+            <th class="right">Price</th>
+            <th class="right">Discount</th>
+            <th class="right">Tax</th>
+            <th class="right">Total</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in invoice.items %}
+        <tr>
+            <td>
+                <strong>{{ item.itemName | default('Item') }}</strong>
+                {% if item.description %}
+                <br><span style="color: var(--text-muted); font-size: 12px;">{{ item.description }}</span>
+                {% endif %}
+            </td>
+            <td class="right">{{ item.quantity }}</td>
+            <td class="right">{{ company.currency }} {{ "%.2f"|format(item.unitPrice|float) }}</td>
+            <td class="right">{{ company.currency }} {{ "%.2f"|format(item.discount|default(0)|float) }}</td>
+            <td class="right">{{ company.currency }} {{ "%.2f"|format(item.taxValue|default(0)|float) }}</td>
+            <td class="right">{{ company.currency }} {{ "%.2f"|format(item.total|float) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="totals-section">
+    <table class="totals-table">
+        <tr>
+            <td>Subtotal</td>
+            <td class="right">{{ company.currency }} {{ "%.2f"|format(invoice.subtotal|float) }}</td>
+        </tr>
+        {% if invoice.totalDiscount and invoice.totalDiscount|float > 0 %}
+        <tr>
+            <td>Discount</td>
+            <td class="right">-{{ company.currency }} {{ "%.2f"|format(invoice.totalDiscount|float) }}</td>
+        </tr>
+        {% endif %}
+        {% if invoice.totalTax and invoice.totalTax|float > 0 %}
+        <tr>
+            <td>Tax</td>
+            <td class="right">{{ company.currency }} {{ "%.2f"|format(invoice.totalTax|float) }}</td>
+        </tr>
+        {% endif %}
+        <tr class="grand-total">
+            <td>Total</td>
+            <td class="right">{{ company.currency }} {{ "%.2f"|format(invoice.total|float) }}</td>
+        </tr>
+        {% if invoice.due is defined and invoice.due != invoice.total %}
+        <tr>
+            <td>Amount Due</td>
+            <td class="right" style="font-weight: bold;">{{ company.currency }} {{ "%.2f"|format(invoice.due|float) }}</td>
+        </tr>
+        {% endif %}
+    </table>
+</div>
+
+<div class="footer">
+    {% if invoice.notes %}
+    <p style="text-align: left; margin-bottom: 20px;">
+        <strong>Notes:</strong><br>
+        {{ invoice.notes }}
+    </p>
+    {% endif %}
+    <p>Thank you for your business.</p>
+</div>
+{% endblock %}

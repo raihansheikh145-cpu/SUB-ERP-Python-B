@@ -1,0 +1,137 @@
+CREATE OR REPLACE FUNCTION public.process_payment(p_payment jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_company_id TEXT;
+    v_payment_id TEXT;
+    v_status TEXT;
+    v_date DATE;
+    v_amount NUMERIC;
+    v_type TEXT;
+    v_contact_id TEXT;
+    v_applied_invoices JSONB;
+    v_applied_bills JSONB;
+    v_account_id TEXT;
+    v_partner_account_id TEXT;
+    v_reference TEXT;
+    v_method TEXT;
+    
+    -- Auto allocation vars
+    v_allocated_amt NUMERIC;
+    v_unallocated_amt NUMERIC;
+    v_doc RECORD;
+    v_doc_total NUMERIC;
+    v_doc_paid NUMERIC;
+    v_doc_unpaid NUMERIC;
+    v_allocate NUMERIC;
+    v_newly_allocated JSONB := '[]'::jsonb;
+    v_doc_elem JSONB;
+    v_doc_idx INTEGER;
+BEGIN
+    v_payment_id := p_payment->>'id';
+    v_company_id := COALESCE(p_payment->>'companyId', p_payment->>'company_id');
+    v_status := p_payment->>'status';
+    v_date := (p_payment->>'date')::DATE;
+    v_amount := (p_payment->>'amount')::NUMERIC;
+    v_type := p_payment->>'type';
+    v_contact_id := COALESCE(p_payment->>'contactId', p_payment->>'contact_id', p_payment->>'customerId', p_payment->>'vendorId');
+    
+    v_applied_invoices := p_payment->'applied_invoices';
+    IF v_applied_invoices IS NULL THEN
+        v_applied_invoices := COALESCE(p_payment->'appliedInvoices', '[]'::jsonb);
+    END IF;
+    
+    v_applied_bills := p_payment->'applied_bills';
+    IF v_applied_bills IS NULL THEN
+        v_applied_bills := COALESCE(p_payment->'appliedBills', '[]'::jsonb);
+    END IF;
+    
+    v_account_id := COALESCE(p_payment->>'liquidityAccountId', p_payment->>'account_id', p_payment->>'accountId');
+    v_partner_account_id := COALESCE(p_payment->>'partnerAccountId', p_payment->>'partner_account_id');
+    v_reference := COALESCE(p_payment->>'reference', p_payment->>'memo');
+    v_method := p_payment->>'method';
+
+    IF v_status IN ('POSTED', 'CLEARED') AND v_contact_id IS NOT NULL THEN
+        v_allocated_amt := 0;
+        
+        IF (v_type = 'RECEIPT' OR v_type = 'COLLECTION') AND jsonb_typeof(v_applied_invoices) = 'array' THEN
+            FOR v_doc_elem IN SELECT * FROM jsonb_array_elements(v_applied_invoices) LOOP
+                v_allocated_amt := v_allocated_amt + COALESCE((v_doc_elem->>'amount')::NUMERIC, 0);
+            END LOOP;
+            v_newly_allocated := v_applied_invoices;
+            v_unallocated_amt := v_amount - v_allocated_amt;
+            
+            IF v_unallocated_amt > 0.01 THEN
+                FOR v_doc IN 
+                    SELECT id, total FROM docs_invoices 
+                    WHERE company_id = v_company_id AND customer_id = v_contact_id AND status IN ('POSTED', 'PARTIAL', 'PARTIAL_REFUNDED')
+                    ORDER BY date ASC
+                LOOP
+                    IF v_unallocated_amt <= 0.01 THEN EXIT; END IF;
+                    
+                    -- Check if already in v_newly_allocated
+                    CONTINUE WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(v_newly_allocated) el WHERE el->>'invoiceId' = v_doc.id);
+                    
+                    -- Calculate already paid
+                    SELECT COALESCE(SUM( (ab->>'amount')::NUMERIC ), 0) INTO v_doc_paid
+  FROM docs_payments p
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(p.applied_bills) = 'array' THEN p.applied_bills ELSE '[]'::jsonb END
+  ) ab
+  WHERE p.status = 'POSTED' AND p.company_id = v_company_id AND ab->>'billId' = v_doc.id;
+                    
+                    v_doc_unpaid := GREATEST(0, v_doc.total - v_doc_paid);
+                    IF v_doc_unpaid > 0 THEN
+                        v_allocate := LEAST(v_doc_unpaid, v_unallocated_amt);
+                        v_newly_allocated := v_newly_allocated || jsonb_build_object('billId', v_doc.id, 'amount', v_allocate);
+                        v_unallocated_amt := v_unallocated_amt - v_allocate;
+                    END IF;
+                END LOOP;
+                v_applied_bills := v_newly_allocated;
+                p_payment := jsonb_set(p_payment, '{applied_bills}', v_applied_bills);
+            END IF;
+        END IF;
+    END IF;
+
+    -- 1. Insert Payment Header (KEEP IT AS DRAFT for now to pass trigger constraints)
+    INSERT INTO docs_payments (
+        id, data, company_id, date, type, status, amount, contact_id,
+        applied_invoices, applied_bills, account_id, partner_account_id, 
+        reference, method, payment_date, payment_number, updated_at
+    )
+    VALUES (
+        v_payment_id, jsonb_set(p_payment, '{status}', '"DRAFT"'), v_company_id, v_date, v_type, 'DRAFT', v_amount, v_contact_id,
+        v_applied_invoices, v_applied_bills, v_account_id, v_partner_account_id, 
+        v_reference, v_method, COALESCE(v_date, CURRENT_DATE), p_payment->>'number', NOW()
+    )
+    ON CONFLICT (id) DO UPDATE SET 
+        data = EXCLUDED.data,
+        company_id = EXCLUDED.company_id,
+        date = EXCLUDED.date,
+        type = EXCLUDED.type,
+        status = 'DRAFT',
+        amount = EXCLUDED.amount,
+        contact_id = EXCLUDED.contact_id,
+        applied_invoices = EXCLUDED.applied_invoices,
+        applied_bills = EXCLUDED.applied_bills,
+        account_id = EXCLUDED.account_id,
+        partner_account_id = EXCLUDED.partner_account_id,
+        reference = EXCLUDED.reference,
+        method = EXCLUDED.method,
+        payment_date = EXCLUDED.payment_date,
+        payment_number = CASE 
+            WHEN docs_payments.payment_number IS NOT NULL AND docs_payments.payment_number NOT LIKE 'DRAFT-%' THEN docs_payments.payment_number 
+            ELSE EXCLUDED.payment_number 
+        END,
+        updated_at = NOW();
+
+    -- 4. Transition to final status and generate journals
+    IF v_status IN ('POSTED', 'CLEARED') THEN
+        PERFORM post_payment(v_payment_id, v_company_id);
+    END IF;
+
+    RETURN jsonb_build_object('success', true, 'payment_id', v_payment_id);
+END;
+$function$

@@ -1,0 +1,22 @@
+Error with CAST: Failing row contains (a7a77d21-90e2-4b04-9418-2bf40ef9edf2, 2026-08-09 05:19:15.195011+00, null, test-co, null, null, null, 0, null, null, null, null, null, null, null, null, {"test": "data"}).
+Traceback (most recent call last):
+  File "H:\Project\sub-erp (8)\backend\test_insert_payment.py", line 13, in main
+    await prisma.execute_raw("""
+  File "H:\Project\sub-erp (8)\backend\venv\Lib\site-packages\prisma\client.py", line 185, in execute_raw
+    resp = await self._execute(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "H:\Project\sub-erp (8)\backend\venv\Lib\site-packages\prisma\_base_client.py", line 543, in _execute
+    return await self._engine.query(builder.build(), tx_id=self._tx_id)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "H:\Project\sub-erp (8)\backend\venv\Lib\site-packages\prisma\engine\_query.py", line 402, in query
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "H:\Project\sub-erp (8)\backend\venv\Lib\site-packages\prisma\engine\_http.py", line 233, in request
+    return self._process_response_data(data=data, response=response)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "H:\Project\sub-erp (8)\backend\venv\Lib\site-packages\prisma\engine\_http.py", line 87, in _process_response_data
+    return utils.handle_response_errors(response, errors_data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "H:\Project\sub-erp (8)\backend\venv\Lib\site-packages\prisma\engine\utils.py", line 175, in handle_response_errors
+    raise exc(error)
+prisma.errors.RawQueryError: Failing row contains (a7a77d21-90e2-4b04-9418-2bf40ef9edf2, 2026-08-09 05:19:15.195011+00, null, test-co, null, null, null, 0, null, null, null, null, null, null, null, null, {"test": "data"}).
