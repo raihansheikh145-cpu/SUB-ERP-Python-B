@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = 'https://hkdgsnlrhvmtjddwvuzd.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhrZGdzbmxyaHZtdGpkZHd2dXpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0NDA3MTQsImV4cCI6MjEwMDAxNjcxNH0.DRKCYrlwLoJjyvTMMsp7EMiWHHS2wZGHGcfH2Fg7kR8';
+const supabaseKey = '<SUPABASE_ANON_KEY>';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 

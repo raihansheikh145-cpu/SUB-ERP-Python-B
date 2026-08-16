@@ -157,16 +157,7 @@ class InventoryLedgerRequest(BaseModel):
 @router.post("/ledger")
 async def get_inventory_ledger(req: InventoryLedgerRequest, user=Depends(get_current_user)):
     try:
-        # Prepare params
-        company_ids_str = "','".join(req.p_company_ids)
-        company_filter = f"t.company_id::text IN ('{company_ids_str}')"
-        
-        product_filter = "1=1"
-        if req.p_product_ids and len(req.p_product_ids) > 0:
-            product_ids_str = "','".join(req.p_product_ids)
-            product_filter = f"t.product_id::text IN ('{product_ids_str}')"
-
-        query = f"""
+        query = """
         SELECT 
             t.product_id,
             t.date,
@@ -189,13 +180,19 @@ async def get_inventory_ledger(req: InventoryLedgerRequest, user=Depends(get_cur
         LEFT JOIN docs_bills b ON t.reference_type = 'BILL' AND (t.reference_id = b.id::text OR t.reference_id = 'temp-' || b.id::text)
         LEFT JOIN docs_invoices i ON t.reference_type = 'INVOICE' AND (t.reference_id = i.id::text OR t.reference_id = 'temp-' || i.id::text)
         LEFT JOIN docs_credit_notes cn ON t.reference_type = 'CREDIT_NOTE' AND (t.reference_id = cn.id::text OR t.reference_id = 'temp-' || cn.id::text)
-        WHERE {company_filter}
-          AND {product_filter}
-          AND t.date::date >= '{req.p_start_date}'::date
-          AND t.date::date <= '{req.p_end_date}'::date
+        WHERE t.company_id::text = ANY($1::text[])
+          AND ($2::text[] IS NULL OR t.product_id::text = ANY($2::text[]))
+          AND t.date::date >= $3::date
+          AND t.date::date <= $4::date
         ORDER BY t.date ASC, t.created_at ASC
         """
-        rows = await prisma.query_raw(query)
+        rows = await prisma.query_raw(
+            query,
+            req.p_company_ids,
+            req.p_product_ids if req.p_product_ids and len(req.p_product_ids) > 0 else None,
+            req.p_start_date,
+            req.p_end_date
+        )
         
         results = []
         for r in rows:

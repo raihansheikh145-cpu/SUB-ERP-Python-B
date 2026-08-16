@@ -55,29 +55,29 @@ async def process_report(req: GenerateReportRequest):
     if not c_ids and req.companyId:
         c_ids = [req.companyId]
         
-    if not c_ids:
-        c_ids = [None] # dummy to prevent empty IN clause
+    if not c_ids or all(cid is None for cid in c_ids):
+        return []
         
-    c_ids_str = "','".join(c_ids)
+    c_ids = [cid for cid in c_ids if cid]
     
     start_date = params.get("startDate", "1970-01-01")
     end_date = params.get("endDate", "2099-12-31")
     as_of_date = params.get("asOfDate", end_date)
 
     if rtype == "TRIAL_BALANCE":
-        return await _get_trial_balance(c_ids_str, start_date, end_date)
+        return await _get_trial_balance(c_ids, start_date, end_date)
     elif rtype == "BALANCE_SHEET":
-        return await _get_balance_sheet(c_ids_str, as_of_date)
+        return await _get_balance_sheet(c_ids, as_of_date)
     elif rtype == "PROFIT_AND_LOSS":
-        return await _get_profit_and_loss(c_ids_str, start_date, end_date)
+        return await _get_profit_and_loss(c_ids, start_date, end_date)
     elif rtype == "STOCK_VALUATION":
-        return await _get_stock_valuation(c_ids_str)
+        return await _get_stock_valuation(c_ids)
     else:
         raise Exception(f"Unknown report type: {rtype}")
 
 
-async def _get_trial_balance(c_ids_str: str, start_date: str, end_date: str):
-    sql = f"""
+async def _get_trial_balance(c_ids: list, start_date: str, end_date: str):
+    sql = """
         WITH opening AS (
             SELECT 
                 jl.account_id,
@@ -86,8 +86,8 @@ async def _get_trial_balance(c_ids_str: str, start_date: str, end_date: str):
             FROM docs_journal_lines jl
             JOIN docs_journals j ON jl.journal_id = j.id
             WHERE j.status = 'POSTED'
-              AND j.company_id IN ('{c_ids_str}')
-              AND j.date < '{start_date}'
+              AND j.company_id = ANY($1::text[])
+              AND j.date < $2::date
             GROUP BY jl.account_id
         ),
         period AS (
@@ -98,9 +98,9 @@ async def _get_trial_balance(c_ids_str: str, start_date: str, end_date: str):
             FROM docs_journal_lines jl
             JOIN docs_journals j ON jl.journal_id = j.id
             WHERE j.status = 'POSTED'
-              AND j.company_id IN ('{c_ids_str}')
-              AND j.date >= '{start_date}'
-              AND j.date <= '{end_date}'
+              AND j.company_id = ANY($1::text[])
+              AND j.date >= $2::date
+              AND j.date <= $3::date
             GROUP BY jl.account_id
         )
         SELECT 
@@ -115,11 +115,11 @@ async def _get_trial_balance(c_ids_str: str, start_date: str, end_date: str):
         FROM docs_accounts a
         LEFT JOIN opening o ON o.account_id = a.id
         LEFT JOIN period p ON p.account_id = a.id
-        WHERE a.company_id IN ('{c_ids_str}')
+        WHERE a.company_id = ANY($1::text[])
           AND (COALESCE(o.ob_debit, 0) != 0 OR COALESCE(o.ob_credit, 0) != 0 OR COALESCE(p.p_debit, 0) != 0 OR COALESCE(p.p_credit, 0) != 0)
         ORDER BY a.code
     """
-    rows = await prisma.query_raw(sql)
+    rows = await prisma.query_raw(sql, c_ids, start_date, end_date)
     results = []
     for r in rows:
         ob = float(r["opening_balance"])
@@ -150,8 +150,8 @@ async def _get_trial_balance(c_ids_str: str, start_date: str, end_date: str):
             })
     return results
 
-async def _get_balance_sheet(c_ids_str: str, as_of_date: str):
-    sql = f"""
+async def _get_balance_sheet(c_ids: list, as_of_date: str):
+    sql = """
         SELECT 
             a.id as account_id,
             a.code as account_code,
@@ -165,15 +165,15 @@ async def _get_balance_sheet(c_ids_str: str, as_of_date: str):
             SELECT jl.account_id, jl.debit, jl.credit
             FROM docs_journal_lines jl
             JOIN docs_journals j ON jl.journal_id = j.id
-            WHERE j.status = 'POSTED' AND j.date <= '{as_of_date}'
+            WHERE j.status = 'POSTED' AND j.date <= $2::date
         ) jl ON jl.account_id = a.id
-        WHERE a.company_id IN ('{c_ids_str}')
+        WHERE a.company_id = ANY($1::text[])
           AND a.type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE', 'COST_OF_REVENUE')
         GROUP BY a.id, a.code, a.name, a.type, a.company_id
         HAVING SUM(jl.debit) != 0 OR SUM(jl.credit) != 0
         ORDER BY a.type, a.code
     """
-    rows = await prisma.query_raw(sql)
+    rows = await prisma.query_raw(sql, c_ids, as_of_date)
     results = []
     retained_earnings_per_branch = {}
     
@@ -236,8 +236,8 @@ async def _get_balance_sheet(c_ids_str: str, as_of_date: str):
         
     return results
 
-async def _get_profit_and_loss(c_ids_str: str, start_date: str, end_date: str):
-    sql = f"""
+async def _get_profit_and_loss(c_ids: list, start_date: str, end_date: str):
+    sql = """
         SELECT 
             a.id as account_id,
             a.code as account_code,
@@ -249,14 +249,14 @@ async def _get_profit_and_loss(c_ids_str: str, start_date: str, end_date: str):
         FROM docs_accounts a
         JOIN docs_journal_lines jl ON jl.account_id = a.id
         JOIN docs_journals j ON jl.journal_id = j.id
-        WHERE a.company_id IN ('{c_ids_str}')
+        WHERE a.company_id = ANY($1::text[])
           AND j.status = 'POSTED'
-          AND j.date >= '{start_date}'
-          AND j.date <= '{end_date}'
+          AND j.date >= $2::date
+          AND j.date <= $3::date
           AND a.type IN ('REVENUE', 'EXPENSE', 'COST_OF_REVENUE')
         GROUP BY a.id, a.code, a.name, a.type, a.company_id
     """
-    rows = await prisma.query_raw(sql)
+    rows = await prisma.query_raw(sql, c_ids, start_date, end_date)
     results = []
     for r in rows:
         d = float(r["tot_debit"] or 0)
@@ -274,8 +274,8 @@ async def _get_profit_and_loss(c_ids_str: str, start_date: str, end_date: str):
             })
     return results
 
-async def _get_stock_valuation(c_ids_str: str):
-    sql = f"""
+async def _get_stock_valuation(c_ids: list):
+    sql = """
         SELECT 
             p.id as product_id,
             p.name as product_name,
@@ -285,11 +285,11 @@ async def _get_stock_valuation(c_ids_str: str):
             SUM(il.quantity) as on_hand_qty
         FROM docs_products p
         JOIN docs_inventory_ledger il ON il.product_id = p.id
-        WHERE p.company_id IN ('{c_ids_str}')
+        WHERE p.company_id = ANY($1::text[])
         GROUP BY p.id, p.name, p.sku, p.company_id, p.cost
         HAVING SUM(il.quantity) > 0
     """
-    rows = await prisma.query_raw(sql)
+    rows = await prisma.query_raw(sql, c_ids)
     results = []
     for r in rows:
         qty = float(r["on_hand_qty"])

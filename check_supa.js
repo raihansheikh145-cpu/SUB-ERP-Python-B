@@ -16,7 +16,7 @@ async function check(name, connectionString) {
 
 async function main() {
   await check('Supabase (env)', 'postgresql://postgres.hkdgsnlrhvmtjddwvuzd:hMzz9N3jdfMS2buB@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres');
-  await check('Supabase (old)', 'postgresql://postgres:sk445%40raihan@db.buspgzsamhfmjrmmwpmo.supabase.co:6543/postgres');
-  await check('Local', 'postgresql://postgres:sk445%40raihan@localhost:5433/postgres?schema=public');
+  await check('Supabase (old)', 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@db.<SUPABASE_PROJECT_REF>.supabase.co:6543/postgres');
+  await check('Local', 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@localhost:5433/postgres?schema=public');
 }
 main();

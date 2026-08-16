@@ -75,27 +75,15 @@ export async function authMiddleware(req: any, res: any, next: any): Promise<any
     }
 
     // 2. Try offline decryption verifying with JWT_SECRET
-    const secret = process.env.JWT_SECRET || "enterprise-erp-jwt-secret-fallback-key-2026";
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      return res.status(503).json({ error: "Authentication is not configured. Please contact the administrator." });
+    }
     try {
       const decoded = jwt.verify(token, secret);
       req.user = decoded;
       return next();
     } catch (jwtError) {
-      // 3. Fallback: Parse Supabase or Custom JWT signature-less to extract user identifier if verification key mismatch occurs on the server
-      try {
-        const decodedPayload: any = jwt.decode(token);
-        if (decodedPayload && (decodedPayload.sub || decodedPayload.id || decodedPayload.uid)) {
-          console.warn("Using signature-less decoded JWT context fallback:", decodedPayload);
-          req.user = {
-            id: decodedPayload.sub || decodedPayload.uid || decodedPayload.id,
-            email: decodedPayload.email || "",
-            role: decodedPayload.role || "authenticated"
-          };
-          return next();
-        }
-      } catch (decodeErr) {
-        console.error("Signatureless decode failed:", decodeErr);
-      }
       return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
     }
   } catch (err: any) {

@@ -3,7 +3,7 @@ const { Client } = pkg;
 
 async function check() {
   const client = new Client({ 
-    connectionString: 'postgresql://postgres:sk445%40raihan@localhost:5433/postgres?schema=public', 
+    connectionString: 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@localhost:5433/postgres?schema=public', 
   });
   try {
     await client.connect();

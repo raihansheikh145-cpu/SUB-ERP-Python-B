@@ -16,8 +16,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
     secret = getattr(settings, "JWT_SECRET", None) or getattr(settings, "SUPABASE_JWT_SECRET", None) or os.getenv("JWT_SECRET") or os.getenv("SUPABASE_JWT_SECRET")
     if not secret:
-        logger.critical("FATAL SECURITY ERROR: JWT_SECRET is not set in the environment.")
-        sys.exit(1)
+        logger.critical("SECURITY ERROR: JWT_SECRET is not set in the environment.")
+        raise HTTPException(status_code=503, detail="Authentication is not configured. Please contact the administrator.")
 
     try:
         # Strictly verify our native JWT signature

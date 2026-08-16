@@ -18,7 +18,7 @@ async function check() {
     console.log('Columns in docs_users:', res.rows.map(r => r.column_name));
     
     // Let's migrate using the correct column names!
-    const localClient = new Client({ connectionString: 'postgresql://postgres:sk445%40raihan@localhost:5433/postgres?schema=public' });
+    const localClient = new Client({ connectionString: 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@localhost:5433/postgres?schema=public' });
     await localClient.connect();
     const userRes = await localClient.query('SELECT * FROM docs_users WHERE email = $1', ['raihansheikh145@hotmail.com']);
     

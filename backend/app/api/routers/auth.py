@@ -27,7 +27,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except Exception:
         return False
 
-SECRET_KEY = getattr(settings, "JWT_SECRET", None) or getattr(settings, "SUPABASE_JWT_SECRET", None) or os.getenv("JWT_SECRET") or os.getenv("SUPABASE_JWT_SECRET") or "enterprise-erp-jwt-secret-fallback-key-2026"
+def _get_secret_key() -> str:
+    """Return the configured JWT secret. Never falls back to a hardcoded value."""
+    secret = getattr(settings, "JWT_SECRET", None) or getattr(settings, "SUPABASE_JWT_SECRET", None) or os.getenv("JWT_SECRET") or os.getenv("SUPABASE_JWT_SECRET")
+    if not secret:
+        raise RuntimeError("JWT_SECRET environment variable is not configured.")
+    return secret
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
 
@@ -54,7 +60,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _get_secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
 
 @router.post("/register")

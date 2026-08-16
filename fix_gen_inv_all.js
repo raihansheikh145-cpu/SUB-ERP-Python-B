@@ -1,6 +1,6 @@
 import pkg from 'pg';
 const { Client } = pkg;
-const connectionString = 'postgresql://postgres:sk445%40raihan@db.buspgzsamhfmjrmmwpmo.supabase.co:6543/postgres';
+const connectionString = 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@db.<SUPABASE_PROJECT_REF>.supabase.co:6543/postgres';
 
 async function main() {
   const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });

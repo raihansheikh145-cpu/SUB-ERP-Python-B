@@ -1,6 +1,6 @@
 import pkg from "pg";
 const { Client } = pkg;
-const connectionString = process.env.SUPABASE_DB_URL.replace('sk445@raihan', 'sk445%40raihan');
+const connectionString = process.env.SUPABASE_DB_URL.replace('<SUPABASE_DB_PASSWORD>', '<SUPABASE_DB_PASSWORD>%40raihan');
 
 const sql = `
 DROP FUNCTION IF EXISTS post_invoice(text, text);

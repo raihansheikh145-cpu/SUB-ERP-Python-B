@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 async function run() {
-  const client = new Client({ connectionString: 'postgresql://postgres:sk445%40raihan@db.buspgzsamhfmjrmmwpmo.supabase.co:6543/postgres' });
+  const client = new Client({ connectionString: 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@db.<SUPABASE_PROJECT_REF>.supabase.co:6543/postgres' });
   await client.connect();
   const sql = `
 CREATE OR REPLACE FUNCTION public.get_general_ledger(

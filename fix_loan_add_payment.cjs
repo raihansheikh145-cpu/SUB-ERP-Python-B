@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 async function run() {
-  const client = new Client({ connectionString: 'postgresql://postgres:sk445%40raihan@db.buspgzsamhfmjrmmwpmo.supabase.co:6543/postgres' });
+  const client = new Client({ connectionString: 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@db.<SUPABASE_PROJECT_REF>.supabase.co:6543/postgres' });
   await client.connect();
   const loanId = '5a957f4d-a520-4d6b-83b8-187070e49255';
   const journalId = '918769e0-7336-4032-913f-a20ddaae7cae';

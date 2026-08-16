@@ -28,7 +28,7 @@ async function setup() {
     
     console.log('Inserting user...');
     // We get the hashed password from the local db for the hotmail user!
-    const localClient = new Client({ connectionString: 'postgresql://postgres:sk445%40raihan@localhost:5433/postgres?schema=public' });
+    const localClient = new Client({ connectionString: 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@localhost:5433/postgres?schema=public' });
     await localClient.connect();
     const localRes = await localClient.query('SELECT * FROM public.auth_users WHERE email = $1', ['raihansheikh145@hotmail.com']);
     

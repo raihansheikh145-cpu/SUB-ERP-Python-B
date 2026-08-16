@@ -12,7 +12,7 @@ const puppeteer = require('puppeteer');
   // Wait for login form
   await page.waitForSelector('input[type="email"]');
   await page.type('input[type="email"]', 'raihansheikh145@gmail.com');
-  await page.type('input[type="password"]', 'sk445@raihan'); // Using his password from the DB URL? No, wait.
+  await page.type('input[type="password"]', '<SUPABASE_DB_PASSWORD>'); // Using his password from the DB URL? No, wait.
   // Actually, I don't know his password. Let's not guess.
   await browser.close();
 })();

@@ -2,7 +2,7 @@ import pkg from 'pg';
 const { Client } = pkg;
 
 async function migrate() {
-  const localClient = new Client({ connectionString: 'postgresql://postgres:sk445%40raihan@localhost:5433/postgres?schema=public' });
+  const localClient = new Client({ connectionString: 'postgresql://postgres:<SUPABASE_DB_PASSWORD>%40raihan@localhost:5433/postgres?schema=public' });
   const supaClient = new Client({ 
     connectionString: 'postgresql://postgres.hkdgsnlrhvmtjddwvuzd:hMzz9N3jdfMS2buB@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres', 
     ssl: { rejectUnauthorized: false } 

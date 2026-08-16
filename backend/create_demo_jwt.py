@@ -1,5 +1,6 @@
 import json
 import uuid
+import os
 import httpx
 import jwt
 
@@ -10,7 +11,9 @@ payload = {
     "role": "authenticated"
 }
 
-secret = "enterprise-erp-jwt-secret-fallback-key-2026"
+secret = os.getenv("JWT_SECRET") or os.getenv("SUPABASE_JWT_SECRET")
+if not secret:
+    raise SystemExit("JWT_SECRET environment variable is not configured. Set it before running this demo script.")
 token = jwt.encode(payload, secret, algorithm="HS256")
 
 company_id = "00000000-0000-0000-0000-000000000000"
