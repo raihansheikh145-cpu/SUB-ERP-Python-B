@@ -54,6 +54,93 @@ class AccountingService:
 
 
     @staticmethod
+    async def rebuild_wac_for_document(tx, doc_type: str, doc_id: str, company_id: str = None):
+        """
+        IAS 2 / ASC 330 compliant moving-average (WAC) rebuild.
+        After reversing a document's stock movements, recompute each affected
+        product's weighted-average cost from the remaining IN/OUT transactions.
+        OUT movements consume the running average; IN movements add at their
+        actual landed unit cost.
+        """
+        try:
+            if doc_type == 'INVOICE':
+                prods = await tx.query_raw(
+                    "SELECT DISTINCT product_id FROM docs_invoice_lines WHERE invoice_id = $1 AND product_id IS NOT NULL",
+                    doc_id
+                )
+            elif doc_type == 'BILL':
+                prods = await tx.query_raw(
+                    "SELECT DISTINCT product_id FROM docs_bill_lines WHERE bill_id = $1 AND product_id IS NOT NULL",
+                    doc_id
+                )
+            elif doc_type == 'CREDIT_NOTE':
+                prods = await tx.query_raw(
+                    "SELECT DISTINCT product_id FROM docs_credit_note_lines WHERE credit_note_id = $1 AND product_id IS NOT NULL",
+                    doc_id
+                )
+            else:
+                return
+
+            if not company_id:
+                if doc_type == 'INVOICE':
+                    row = await tx.query_raw("SELECT company_id FROM docs_invoices WHERE id = $1 LIMIT 1", doc_id)
+                elif doc_type == 'BILL':
+                    row = await tx.query_raw("SELECT company_id FROM docs_bills WHERE id = $1 LIMIT 1", doc_id)
+                else:
+                    row = await tx.query_raw("SELECT company_id FROM docs_credit_notes WHERE id = $1 LIMIT 1", doc_id)
+                if not row:
+                    return
+                company_id = row[0]["company_id"]
+
+            for p in prods:
+                product_id = p["product_id"]
+                wh_rows = await tx.query_raw(
+                    "SELECT DISTINCT warehouse_id FROM docs_inventory_transactions WHERE product_id = $1 AND company_id = $2",
+                    product_id, company_id
+                )
+                warehouses = [w["warehouse_id"] for w in wh_rows] or [None]
+
+                for wh_id in warehouses:
+                    if wh_id is None:
+                        continue
+                    movements = await tx.query_raw("""
+                        SELECT transaction_type, quantity, cost_price, unit_price, created_at
+                        FROM docs_inventory_transactions
+                        WHERE product_id = $1 AND warehouse_id = $2 AND company_id = $3
+                        ORDER BY created_at ASC
+                    """, product_id, wh_id, company_id)
+
+                    running_qty = 0.0
+                    running_cost = 0.0
+                    for m in movements:
+                        qty = float(m.get("quantity") or 0)
+                        if m.get("transaction_type") == 'IN':
+                            unit_cost = float(m.get("cost_price") or m.get("unit_price") or 0)
+                            running_cost += qty * unit_cost
+                            running_qty += qty
+                        elif m.get("transaction_type") == 'OUT':
+                            if running_qty > 0:
+                                avg = running_cost / running_qty
+                                running_cost -= qty * avg
+                                running_qty -= qty
+
+                    new_wac = round(running_cost / running_qty, 4) if running_qty > 0 else 0
+                    await tx.execute_raw("""
+                        INSERT INTO docs_product_costs (id, company_id, product_id, warehouse_id, avg_cost, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, NOW())
+                        ON CONFLICT (id) DO UPDATE SET avg_cost = EXCLUDED.avg_cost, updated_at = NOW()
+                    """, f"cost-{product_id}-{wh_id}", company_id, product_id, wh_id, new_wac)
+
+                    if new_wac > 0:
+                        await tx.execute_raw("""
+                            UPDATE docs_products SET cost_price = $1 WHERE id = $2
+                        """, new_wac, product_id)
+        except Exception as e:
+            logger.error(f"WAC rebuild failed for {doc_type} {doc_id}: {e}")
+            raise
+
+
+    @staticmethod
     async def post_invoice(prisma: Prisma, invoice_id: str, company_id: str = None):
         async with prisma.tx() as tx:
             inv = await tx.query_raw("SELECT * FROM docs_invoices WHERE id = $1 LIMIT 1", invoice_id)
@@ -126,12 +213,16 @@ class AccountingService:
                     "quantity": float(l.get("quantity") or 0),
                     "unitPrice": float(l.get("unit_price") or 0),
                     "description": l.get("description", "Item"),
-                    "productId": l.get("product_id")
+                    "productId": l.get("product_id"),
+                    "tax": float(l.get("tax") or 0)
                 })
             global_discount = sum(abs(float(item.get("lineValue") or 0)) for item in items if item.get("type") == "DISCOUNT")
             
-            # Distribute global discount proportionally across products
+            # Per GAAP/IFRS 15, revenue must be presented net of output VAT.
+            # Inline tax embedded in each product line is split out and
+            # credited to Tax Payable instead of being recognised as revenue.
             total_revenue_subtotal = 0.0
+            total_inline_tax = 0.0
             product_items_count = 0
             for item in items:
                 t = item.get("type")
@@ -140,7 +231,10 @@ class AccountingService:
                     qty = float(item.get("quantity") or 0)
                     price = float(item.get("unitPrice") or 0)
                     line_val = float(item.get("lineValue") or 0)
-                    total_revenue_subtotal += line_val if line_val else (qty * price)
+                    inline_tax = float(item.get("tax") or 0)
+                    gross = line_val if line_val else (qty * price)
+                    total_revenue_subtotal += (gross - inline_tax)
+                    total_inline_tax += inline_tax
 
             total_credit = 0.0
             discount_distributed = 0.0
@@ -153,8 +247,10 @@ class AccountingService:
                     qty = float(item.get("quantity") or 0)
                     price = float(item.get("unitPrice") or 0)
                     line_val = float(item.get("lineValue") or 0)
-                    item_subtotal = line_val if line_val else (qty * price)
-                    
+                    inline_tax = float(item.get("tax") or 0)
+                    item_gross = line_val if line_val else (qty * price)
+                    item_subtotal = item_gross - inline_tax
+
                     if current_item_idx == product_items_count:
                         proportional_discount = round(global_discount - discount_distributed, 2)
                     else:
@@ -163,7 +259,7 @@ class AccountingService:
                         
                     revenue_net = round(item_subtotal - proportional_discount, 2)
                     
-                    # Revenue Credit
+                    # Revenue Credit (net of output VAT — IFRS 15)
                     try:
                         await tx.execute_raw("""
                             INSERT INTO docs_journal_lines (id, journal_id, company_id, account_id, debit, credit, description)
@@ -173,17 +269,29 @@ class AccountingService:
                         logger.error(f"Failed at rev line {idx}: {e}")
                         raise
                     total_credit += revenue_net
+
+                    # Output VAT split-out: Tax Payable credit (IAS 12 / VAT principles)
+                    if inline_tax > 0:
+                        try:
+                            await tx.execute_raw("""
+                                INSERT INTO docs_journal_lines (id, journal_id, company_id, account_id, debit, credit, description)
+                                VALUES ($1, $2, $3, $4, 0, $5, $6)
+                            """, f"JL-{journal_id}-tax-inline-{idx}", journal_id, effective_company_id, tax_acc, inline_tax, f"Output Tax: {item.get('description', 'Item')}")
+                        except Exception as e:
+                            logger.error(f"Failed at inline tax line {idx}: {e}")
+                            raise
+                        total_credit += inline_tax
                     
                     # COGS & Inventory Asset
                     product_id = item.get("productId") or item.get("product_id")
                     if product_id:
                         # GAAP: WAC (IAS 2 / ASC 330) — use consistent warehouse_id
-                        wh_id = f"WH-MAIN-{effective_company_id}"
+                        wh_id = f"wh-{effective_company_id}"
                         wac_record = await tx.query_raw("""
                             SELECT avg_cost FROM docs_product_costs 
-                            WHERE product_id = $1 AND company_id = $2
+                            WHERE product_id = $1 AND warehouse_id = $2 AND company_id = $3
                             ORDER BY updated_at DESC LIMIT 1
-                        """, product_id, effective_company_id)
+                        """, product_id, wh_id, effective_company_id)
                         
                         wac_cost = float(wac_record[0]["avg_cost"]) if wac_record else None
                         
@@ -296,6 +404,16 @@ class AccountingService:
                 except Exception as e:
                     logger.error(f"Failed at total update: {e}")
                     raise
+
+            # Final double-entry balance assertion (every journal must balance)
+            bal = await tx.query_raw("""
+                SELECT COALESCE(SUM(debit),0) AS dr, COALESCE(SUM(credit),0) AS cr
+                FROM docs_journal_lines WHERE journal_id = $1
+            """, journal_id)
+            dr_total = float(bal[0]["dr"]) if bal else 0
+            cr_total = float(bal[0]["cr"]) if bal else 0
+            if abs(dr_total - cr_total) > 0.01:
+                raise Exception(f"Invoice {inv_num} journal unbalanced (Dr: {dr_total:.2f}, Cr: {cr_total:.2f}). Posting aborted.")
 
             # Update status
             try:
@@ -447,16 +565,26 @@ class AccountingService:
                     # Calculate net item value excluding tax but including discount
                     # If frontend calculated lineValue properly, we can use it, but for bills let's rely on lineValue if present
                     item_net = line_val if line_val else (qty * price)
+                    inline_tax = float(item.get("tax") or 0)
+                    item_net_excl_tax = round(max(item_net - inline_tax, 0), 2)
                     
                     target_acc = inv_acc if item_type == "PRODUCT" else exp_acc
                     
-                    # Split Journal Line (Debit)
-                    if item_net > 0:
+                    # Split Journal Line (Debit) — net of input VAT (IFRS 15 / IAS 2)
+                    if item_net_excl_tax > 0:
                         await tx.execute_raw("""
                             INSERT INTO docs_journal_lines (id, journal_id, company_id, account_id, contact_id, debit, credit, description, updated_at)
                             VALUES ($1, $2, $3, $4, $5, $6, 0, $7, NOW())
-                        """, f"JL-{journal_id}-itm-{idx}", journal_id, effective_company_id, target_acc, vendor_id, item_net, f"{item_type}: {desc}")
-                        total_debit += item_net
+                        """, f"JL-{journal_id}-itm-{idx}", journal_id, effective_company_id, target_acc, vendor_id, item_net_excl_tax, f"{item_type}: {desc}")
+                        total_debit += item_net_excl_tax
+                        
+                    # Input VAT split-out: Dr Tax Receivable (asset)
+                    if inline_tax > 0:
+                        await tx.execute_raw("""
+                            INSERT INTO docs_journal_lines (id, journal_id, company_id, account_id, contact_id, debit, credit, description, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, 0, $7, NOW())
+                        """, f"JL-{journal_id}-tax-inline-{idx}", journal_id, effective_company_id, tax_acc, vendor_id, inline_tax, f"Input Tax: {desc}")
+                        total_debit += inline_tax
                         
                     # Stock Update for Products
                     product_id = item.get("productId") or item.get("product_id")
@@ -532,6 +660,16 @@ class AccountingService:
             
             if float(bill.get("total") or 0) != total_debit:
                 pass # Total is stored in total column natively
+            
+            # Final double-entry balance assertion (every journal must balance)
+            bal = await tx.query_raw("""
+                SELECT COALESCE(SUM(debit),0) AS dr, COALESCE(SUM(credit),0) AS cr
+                FROM docs_journal_lines WHERE journal_id = $1
+            """, journal_id)
+            dr_total = float(bal[0]["dr"]) if bal else 0
+            cr_total = float(bal[0]["cr"]) if bal else 0
+            if abs(dr_total - cr_total) > 0.01:
+                raise Exception(f"Bill {bill_number} journal unbalanced (Dr: {dr_total:.2f}, Cr: {cr_total:.2f}). Posting aborted.")
             
             # Update bill status
 
@@ -644,6 +782,16 @@ class AccountingService:
             """, f"JL-{run_id}-{journal_id}-part", journal_id, effective_company_id, partner_id, part_debit, part_credit, f"Reconciliation: {ref_val}")
         
         # Update Payment Status early
+
+        # Final double-entry balance assertion (every journal must balance)
+        bal = await tx.query_raw("""
+            SELECT COALESCE(SUM(debit),0) AS dr, COALESCE(SUM(credit),0) AS cr
+            FROM docs_journal_lines WHERE journal_id = $1
+        """, journal_id)
+        dr_total = float(bal[0]["dr"]) if bal else 0
+        cr_total = float(bal[0]["cr"]) if bal else 0
+        if abs(dr_total - cr_total) > 0.01:
+            raise Exception(f"Payment {payment_id} journal unbalanced (Dr: {dr_total:.2f}, Cr: {cr_total:.2f}). Posting aborted.")
 
         await tx.execute_raw("""
             UPDATE docs_payments SET status = 'POSTED', updated_at = NOW() WHERE id = $1
@@ -874,7 +1022,7 @@ class AccountingService:
                             await tx.execute_raw("""
                                 INSERT INTO docs_inventory_transactions (id, company_id, product_id, warehouse_id, transaction_type, quantity, reference_id, reference_type, date, cost_price, unit_price, updated_at)
                                 VALUES ($1, $2, $3, $4, 'IN', $5, $6, 'CREDIT_NOTE', $7::date, $8, $9, NOW())
-                            """, inv_tx_id, effective_company_id, product_id, f"WH-MAIN-{effective_company_id}", qty, cn_id, date_val, cost_price, cost_price)
+                            """, inv_tx_id, effective_company_id, product_id, wh_id, qty, cn_id, date_val, cost_price, cost_price)
                         
                             # COGS Reversal (Debit Inventory, Credit COGS)
                             cogs_amount = round(cost_price * qty, 2)

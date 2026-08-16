@@ -53,10 +53,14 @@ async def process_payment(req: Request, user=Depends(require_roles(["ADMIN", "PU
                               COALESCE(SUM(p.amount), 0) AS paid_amount
                        FROM docs_invoices i
                        LEFT JOIN docs_payments p ON p.status IN ('POSTED','CLEARED')
-                           AND p.applied_invoices::text LIKE $2
+                           AND p.company_id = i.company_id
+                           AND EXISTS (
+                               SELECT 1 FROM jsonb_array_elements(p.applied_invoices) al
+                               WHERE al->>'invoiceId' = i.id
+                           )
                        WHERE i.id = $1
                        GROUP BY i.total''',
-                    invoice_id, f'%{invoice_id}%'
+                    invoice_id
                 )
                 if invoice_res and len(invoice_res) > 0:
                     inv_total = float(invoice_res[0].get("total", 0))
@@ -77,10 +81,14 @@ async def process_payment(req: Request, user=Depends(require_roles(["ADMIN", "PU
                               COALESCE(SUM(p.amount), 0) AS paid_amount
                        FROM docs_bills b
                        LEFT JOIN docs_payments p ON p.status IN ('POSTED','CLEARED')
-                           AND p.applied_bills::text LIKE $2
+                           AND p.company_id = b.company_id
+                           AND EXISTS (
+                               SELECT 1 FROM jsonb_array_elements(p.applied_bills) al
+                               WHERE al->>'billId' = b.id
+                           )
                        WHERE b.id = $1
                        GROUP BY b.total''',
-                    bill_id, f'%{bill_id}%'
+                    bill_id
                 )
                 if bill_res and len(bill_res) > 0:
                     bill_total = float(bill_res[0].get("total", 0))
@@ -137,10 +145,14 @@ async def process_batch_payment(req: Request, user=Depends(require_roles(["ADMIN
                               COALESCE(SUM(p.amount), 0) AS paid_amount
                        FROM docs_invoices i
                        LEFT JOIN docs_payments p ON p.status IN ('POSTED','CLEARED')
-                           AND p.applied_invoices::text LIKE $2
+                           AND p.company_id = i.company_id
+                           AND EXISTS (
+                               SELECT 1 FROM jsonb_array_elements(p.applied_invoices) al
+                               WHERE al->>'invoiceId' = i.id
+                           )
                        WHERE i.id = $1
                        GROUP BY i.id, i.total, i.invoice_number''',
-                    inv_id, f'%{inv_id}%'
+                    inv_id
                 )
                 if inv_res:
                     inv = inv_res[0]
@@ -168,10 +180,14 @@ async def process_batch_payment(req: Request, user=Depends(require_roles(["ADMIN
                               COALESCE(SUM(p.amount), 0) AS paid_amount
                        FROM docs_bills b
                        LEFT JOIN docs_payments p ON p.status IN ('POSTED','CLEARED')
-                           AND p.applied_bills::text LIKE $2
+                           AND p.company_id = b.company_id
+                           AND EXISTS (
+                               SELECT 1 FROM jsonb_array_elements(p.applied_bills) al
+                               WHERE al->>'billId' = b.id
+                           )
                        WHERE b.id = $1
                        GROUP BY b.id, b.total, b.bill_number''',
-                    bill_id, f'%{bill_id}%'
+                    bill_id
                 )
                 if bill_res:
                     bill = bill_res[0]

@@ -137,6 +137,7 @@ class InvoiceService:
         i_date = inv_date.isoformat() if hasattr(inv_date, 'isoformat') else inv_date
         
         data_jsonb = json.dumps({
+            "id": invoice_id,
             "items": jsonb_items,
             "messages": payload.messages,
             "subtotal": totals["subtotal"],
@@ -145,9 +146,18 @@ class InvoiceService:
             "total": totals["total"],
             "status": payload.status,
             "companyId": payload.company_id,
+            "customerId": cust_id,
+            "clientId": cust_id,
+            "contactId": cust_id,
             "date": payload.date.isoformat() if payload.date else None,
             "invoiceDate": inv_date.isoformat() if inv_date else None,
-            "invoiceNumber": inv_number
+            "invoiceNumber": inv_number,
+            "reference": payload.reference,
+            "salesperson": payload.salesperson,
+            "customerNote": payload.customer_note,
+            "deliveryPerson": payload.delivery_person,
+            "dueDate": payload.due_date.isoformat() if payload.due_date else None,
+            "createdById": payload.created_by_id
         }, default=str)
 
         async with prisma.tx() as tx:
@@ -157,8 +167,8 @@ class InvoiceService:
                 INSERT INTO docs_invoices (
                     id, invoice_number, company_id, date, invoice_date, due_date, customer_id, 
                     status, subtotal, tax_total, discount_total, total, reference, salesperson, 
-                    customer_note, delivery_person, created_by_id, updated_at
-                ) VALUES ($1, $2, $3, $4::date, $5::date, $6::date, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+                    customer_note, delivery_person, created_by_id, data, updated_at
+                ) VALUES ($1, $2, $3, $4::date, $5::date, $6::date, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, NOW())
                 ON CONFLICT (id) DO UPDATE SET
                     invoice_number = EXCLUDED.invoice_number,
                     company_id = EXCLUDED.company_id,
@@ -176,11 +186,13 @@ class InvoiceService:
                     customer_note = EXCLUDED.customer_note,
                     delivery_person = EXCLUDED.delivery_person,
                     created_by_id = EXCLUDED.created_by_id,
+                    data = EXCLUDED.data,
                     updated_at = NOW()
                 """,
                 invoice_id, inv_number, payload.company_id, p_date, i_date, d_date,
                 cust_id, payload.status, totals["subtotal"], totals["tax_total"], totals["discount_total"], totals["total"],
-                payload.reference, payload.salesperson, payload.customer_note, payload.delivery_person, payload.created_by_id
+                payload.reference, payload.salesperson, payload.customer_note, payload.delivery_person, payload.created_by_id,
+                data_jsonb
             )
 
             # 2. Sync Lines (Delete missing, UPSERT existing/new)

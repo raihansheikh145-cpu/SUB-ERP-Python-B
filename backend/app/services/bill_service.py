@@ -40,6 +40,7 @@ class BillService:
         
 
         data_jsonb = json.dumps({
+            "id": bill_id,
             "items": jsonb_items,
             "messages": payload.messages,
             "subtotal": totals["subtotal"],
@@ -48,9 +49,14 @@ class BillService:
             "total": totals["total"],
             "status": payload.status,
             "companyId": payload.company_id,
+            "vendorId": vendor_id,
+            "contactId": vendor_id,
             "date": payload.date.isoformat() if payload.date else None,
             "billDate": bill_date.isoformat() if bill_date else None,
-            "billNumber": b_number
+            "billNumber": b_number,
+            "reference": payload.reference,
+            "dueDate": payload.due_date.isoformat() if payload.due_date else None,
+            "createdById": payload.created_by_id
         }, default=str)
 
         async with prisma.tx() as tx:
@@ -60,8 +66,8 @@ class BillService:
                 INSERT INTO docs_bills (
                     id, bill_number, company_id, date, bill_date, due_date, vendor_id, 
                     status, subtotal, tax_total, discount_total, total, reference, created_by_id, 
-                    updated_at
-                ) VALUES ($1, $2, $3, $4::date, $5::date, $6::date, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+                    data, updated_at
+                ) VALUES ($1, $2, $3, $4::date, $5::date, $6::date, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, NOW())
                 ON CONFLICT (id) DO UPDATE SET
                     bill_number = EXCLUDED.bill_number,
                     company_id = EXCLUDED.company_id,
@@ -76,11 +82,13 @@ class BillService:
                     total = EXCLUDED.total,
                     reference = EXCLUDED.reference,
                     created_by_id = EXCLUDED.created_by_id,
+                    data = EXCLUDED.data,
                     updated_at = NOW()
                 """,
                 bill_id, b_number, payload.company_id, p_date, b_date, d_date,
                 vendor_id, payload.status, totals["subtotal"], totals["tax_total"], totals["discount_total"], totals["total"],
-                payload.reference, payload.created_by_id
+                payload.reference, payload.created_by_id,
+                data_jsonb
             )
 
             # 2. Sync Lines (Delete missing, UPSERT existing/new)

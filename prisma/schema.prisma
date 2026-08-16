@@ -218,6 +218,7 @@ model DocsInvoices {
   messages         Json?     @default("[]")
   total_profit     Decimal?  @default(0) @db.Decimal
   journal_entry_id String?
+  data             Json?
 
   @@map("docs_invoices")
 }
@@ -267,6 +268,7 @@ model DocsBills {
   created_by_id    String?
   reference        String?
   journal_entry_id String?
+  data             Json?
 
   @@map("docs_bills")
 }
